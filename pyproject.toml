@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "basilisk"
 version = "0.1.0"
-description = "Web vulnerability scanner CLI - crawl, passive audit, active fuzz"
+description = "Web vulnerability scanner CLI - HackAgent-style pipeline for live apps"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -13,6 +13,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "typer>=0.12",
     "rich>=13.7",
+    "python-dotenv>=1.0",
 ]
 
 [project.scripts]
@@ -20,3 +21,6 @@ basilisk = "basilisk.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["basilisk*"]
+
+[tool.setuptools.package-data]
+basilisk = ["datasets/*.json"]

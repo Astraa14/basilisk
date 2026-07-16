@@ -1,4 +1,4 @@
-"""Basilisk — web vulnerability scanner."""
+"""Basilisk — web vulnerability scanner (HackAgent-style pipeline)."""
 
 from basilisk.core import Basilisk
 

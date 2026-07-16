@@ -1,6 +1,6 @@
 # Basilisk
 
-Installable CLI vulnerability scanner: crawl a site, run passive security checks, then actively fuzz forms for SQLi and XSS.
+Installable CLI vulnerability scanner for **web apps**, structured like [HackAgent](https://github.com/AISecurityLab/hackagent): **Attack Engine**, **Generator**, **Judge**, **Target**, and **Datasets**.
 
 > **Use only on systems you own or have explicit permission to test.** Unauthorized scanning is illegal.
 
@@ -10,44 +10,62 @@ Installable CLI vulnerability scanner: crawl a site, run passive security checks
 git clone <your-repo-url>
 cd Basilisk
 pip install -e .
+cp .env.example .env
+# edit .env and set BASILISK_LLM_API_KEY=...
 ```
 
 Requires Python 3.10+.
 
-## Usage
+## LLM roles (HackAgent-style)
+
+When an LLM backend is available, Basilisk uses the same **role split** as HackAgent:
+
+| Role | What it does |
+|------|----------------|
+| **Generator** | LLM creates adversarial SQLi/XSS payloads for each form (datasets are seeds only) |
+| **Judge** | LLM decides if the Target's HTTP response means the attack succeeded |
+| **Target** | Your live web app (HTTP) |
+| **Datasets** | Static seed templates + optional `--dataset` |
+
+Backend resolution order:
+
+1. Cloud / OpenAI-compatible key in `.env` (`BASILISK_LLM_API_KEY` + `BASILISK_LLM_BASE_URL`)
+2. Else local **Ollama** at `http://localhost:11434` (no paid key — same idea as HackAgent)
 
 ```bash
+# With .env key -> full Generator + Judge pipeline
 basilisk scan https://example.com
-basilisk scan https://example.com --max-pages 10 --no-active
-basilisk login https://example.com --endpoint /login
+
+# Force static-only
+basilisk scan https://example.com --no-llm
 ```
 
-Or without installing:
+Create `.env` from `.env.example` (never commit real keys).
 
-```bash
-python -m basilisk scan https://example.com
-```
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BASILISK_LLM_API_KEY` | (cloud) or `ollama` | API key |
+| `BASILISK_LLM_BASE_URL` | provider URL or Ollama `/v1` | OpenAI-compatible base |
+| `BASILISK_LLM_MODEL` | `gpt-4o-mini` / `llama3.2` | Model name |
 
-| Option | Description |
-|--------|-------------|
-| `-n` / `--max-pages` | Crawl page limit (default: 15) |
-| `--no-active` | Passive checks only (skip form fuzzing) |
-| `-t` / `--timeout` | Request timeout in seconds |
-| `-e` / `--endpoint` | Login path for `basilisk login` |
+Exit code `1` when high-severity issues are found; `2` on LLM config/API errors.
 
-Exit code `1` when high-severity issues are found.
-
-## Project layout
+## Architecture
 
 ```
-basilisk/
-  cli.py       # Typer + Rich terminal UI
-  core.py      # Scan orchestrator
-  http.py      # HTTP session engine
-  parser.py    # Link / form extraction
-  passive.py   # Header & secret audits
-  attack.py    # Payloads, judge, active fuzzer
+Datasets -> Attack Engine -> Generator -> Target (HTTP) -> Judge -> Report
+                ^
+              Recon (crawl + passive)
 ```
+
+| Role | Module |
+|------|--------|
+| Attack Engine | `basilisk/engine.py` |
+| Generator | `basilisk/generator.py` (static + optional LLM) |
+| Judge | `basilisk/judge.py` (heuristic + optional LLM) |
+| Target | `basilisk/target.py` |
+| Datasets | `basilisk/datasets/*.json` |
+| Recon | `basilisk/recon.py` |
 
 ## Development
 
