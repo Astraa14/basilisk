@@ -13,11 +13,11 @@ from rich.table import Table
 from rich.text import Text
 
 from basilisk.core import Basilisk
+from basilisk.llm import LLMError, load_llm_env, llm_configured
 
 logging.getLogger("basilisk").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
-# Avoid cp1252 crashes on Windows terminals
 if hasattr(sys.stdout, "reconfigure"):
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -27,7 +27,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 app = typer.Typer(
     name="basilisk",
-    help="Basilisk - web vulnerability scanner for live apps.",
+    help="Basilisk - web vulnerability scanner (recon + attack engine + judge).",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -42,12 +42,33 @@ SEVERITY_STYLE = {
 }
 
 
-def _banner(url: str) -> None:
+def _resolve_llm(
+    force_llm: bool,
+    no_llm: bool,
+    api_key: str | None,
+) -> tuple[bool, str | None]:
+    """LLM is on when a key exists, unless --no-llm. --llm forces it on."""
+    load_llm_env()
+    if no_llm:
+        return False, api_key
+    if force_llm:
+        return True, api_key
+    # Auto-enable full Generator+Judge pipeline when a key is available
+    if llm_configured(api_key):
+        return True, api_key
+    return False, api_key
+
+
+def _banner(url: str, mode: str = "static") -> None:
+    if mode == "llm":
+        pipeline = "Generator(LLM) -> Target -> Judge(LLM)"
+    else:
+        pipeline = "Static templates -> Target -> Heuristic Judge"
     console.print(
         Panel(
             Text.from_markup(
                 f"[bold]BASILISK[/bold]  |  scanning [cyan]{url}[/cyan]\n"
-                "[dim]crawl -> passive audit -> active fuzz[/dim]"
+                f"[dim]recon -> {pipeline}[/dim]"
             ),
             border_style="green",
             padding=(1, 2),
@@ -99,8 +120,10 @@ def _print_summary(report: dict) -> None:
         if high
         else "[green]no high-severity issues[/green]"
     )
+    mode = report.get("mode", "static")
     console.print(
         Panel(
+            f"Mode: [cyan]{mode}[/cyan]  |  "
             f"Pages: [cyan]{report.get('pages_scanned', 0)}[/cyan]  |  "
             f"Forms: [cyan]{report.get('forms_found', 0)}[/cyan]  |  "
             f"Findings: [cyan]{len(findings)}[/cyan]  |  {status}",
@@ -118,10 +141,35 @@ def scan(
         False, "--no-active", help="Skip active form fuzzing (passive only)"
     ),
     timeout: float = typer.Option(5.0, "--timeout", "-t", help="Request timeout seconds"),
+    use_llm: bool = typer.Option(
+        False, "--llm", help="Force LLM Generator + Judge on"
+    ),
+    no_llm: bool = typer.Option(
+        False, "--no-llm", help="Force static-only mode (ignore API key)"
+    ),
+    api_key: str | None = typer.Option(
+        None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"
+    ),
+    dataset: str | None = typer.Option(
+        None, "--dataset", "-d", help="Optional custom JSON payload dataset path"
+    ),
 ):
-    """Full site scan: crawl, passive headers/secrets, then active SQLi/XSS fuzz."""
-    _banner(url)
-    scanner = Basilisk(target_url=url, timeout=timeout)
+    """Full site scan: recon, passive audit, then Attack Engine fuzzing."""
+    enabled, key = _resolve_llm(use_llm, no_llm, api_key)
+    mode = "llm" if enabled else "static"
+    _banner(url, mode=mode)
+
+    try:
+        scanner = Basilisk(
+            target_url=url,
+            timeout=timeout,
+            use_llm=enabled,
+            custom_dataset=dataset,
+            api_key=key,
+        )
+    except LLMError as exc:
+        console.print(f"[bold red]LLM config error:[/bold red] {exc}")
+        raise typer.Exit(code=2) from exc
 
     with Progress(
         SpinnerColumn(style="green"),
@@ -134,11 +182,15 @@ def scan(
         def on_progress(msg: str) -> None:
             progress.update(task, description=msg[:80])
 
-        report = scanner.scan(
-            max_pages=max_pages,
-            active=not no_active,
-            on_progress=on_progress,
-        )
+        try:
+            report = scanner.scan(
+                max_pages=max_pages,
+                active=not no_active,
+                on_progress=on_progress,
+            )
+        except LLMError as exc:
+            console.print(f"[bold red]LLM error:[/bold red] {exc}")
+            raise typer.Exit(code=2) from exc
 
     console.print()
     _print_findings(report.get("findings", []))
@@ -153,30 +205,49 @@ def login_scan(
     url: str = typer.Argument(..., help="Target base URL"),
     endpoint: str = typer.Option("/login", "--endpoint", "-e", help="Login path"),
     timeout: float = typer.Option(5.0, "--timeout", "-t", help="Request timeout seconds"),
+    use_llm: bool = typer.Option(
+        False, "--llm", help="Force LLM Generator + Judge on"
+    ),
+    no_llm: bool = typer.Option(
+        False, "--no-llm", help="Force static-only mode (ignore API key)"
+    ),
+    api_key: str | None = typer.Option(
+        None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"
+    ),
+    dataset: str | None = typer.Option(
+        None, "--dataset", "-d", help="Optional custom JSON payload dataset path"
+    ),
 ):
-    """Probe a login endpoint for SQL injection."""
-    _banner(f"{url}{endpoint}")
-    scanner = Basilisk(target_url=url, timeout=timeout)
+    """Probe a login endpoint for SQL injection via the Attack Engine."""
+    enabled, key = _resolve_llm(use_llm, no_llm, api_key)
+    mode = "llm" if enabled else "static"
+    _banner(f"{url}{endpoint}", mode=mode)
+
+    try:
+        scanner = Basilisk(
+            target_url=url,
+            timeout=timeout,
+            use_llm=enabled,
+            custom_dataset=dataset,
+            api_key=key,
+        )
+    except LLMError as exc:
+        console.print(f"[bold red]LLM config error:[/bold red] {exc}")
+        raise typer.Exit(code=2) from exc
 
     with console.status("[green]Probing login endpoint...[/green]", spinner="dots"):
-        report = scanner.scan_login(login_endpoint=endpoint)
+        try:
+            report = scanner.scan_login(login_endpoint=endpoint)
+        except LLMError as exc:
+            console.print(f"[bold red]LLM error:[/bold red] {exc}")
+            raise typer.Exit(code=2) from exc
 
     findings = report.get("findings", [])
-    if report.get("exploits_found") and not findings:
-        for exploit in report["exploits_found"]:
-            findings.append(
-                {
-                    "vulnerability": "Potential SQL Injection (Login)",
-                    "severity": "High",
-                    "description": f"{exploit['reason']} - payload: {exploit['payload']}",
-                    "target": report["target"],
-                }
-            )
-
     console.print()
     _print_findings(findings)
     console.print(
         Panel(
+            f"Mode: [cyan]{report.get('mode', mode)}[/cyan]  |  "
             f"Target: [cyan]{report['target']}[/cyan]  |  "
             f"{'[bold red]VULNERABLE[/bold red]' if report.get('vulnerable') else '[green]safe responses[/green]'}",
             title="Login Scan",
@@ -189,6 +260,7 @@ def login_scan(
 
 
 def main() -> None:
+    load_llm_env()
     app()
 
 
