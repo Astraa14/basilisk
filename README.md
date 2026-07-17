@@ -1,6 +1,6 @@
 # Basilisk
 
-Installable CLI vulnerability scanner for **web apps**, structured like [HackAgent](https://github.com/AISecurityLab/hackagent): **Attack Engine**, **Generator**, **Judge**, **Target**, and **Datasets**.
+Installable CLI vulnerability scanner for **web apps**.
 
 > **Use only on systems you own or have explicit permission to test.** Unauthorized scanning is illegal.
 
