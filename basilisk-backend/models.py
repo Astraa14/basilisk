@@ -58,3 +58,19 @@ class Finding(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     scan = relationship("Scan", back_populates="findings")
+
+
+class DeviceCode(Base):
+    """Persisted device-code entries (survives Render restarts / multi-worker)."""
+
+    __tablename__ = "device_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    device_code = Column(String(255), unique=True, index=True, nullable=False)
+    user_code = Column(String(32), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    verified = Column(Boolean, default=False, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    api_key = Column(String(255), nullable=True)
+    username = Column(String(255), default="", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)

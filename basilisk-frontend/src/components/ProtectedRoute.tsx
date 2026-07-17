@@ -5,7 +5,7 @@ import { loadApiKeyFromStorage } from '../services/auth';
 const ProtectedRoute = () => {
   const token = loadApiKeyFromStorage();
 
-  if (!token) {
+  if (!token || token.startsWith('bsk_web_session_')) {
     return <Navigate to="/auth" replace />;
   }
 

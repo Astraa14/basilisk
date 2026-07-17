@@ -1,38 +1,17 @@
-"""Device code flow authentication logic."""
+"""Device code flow authentication — DB-backed for Render reliability."""
 
 from __future__ import annotations
 
 import os
 import secrets
 import string
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "http://localhost:3000")
+from sqlalchemy.orm import Session
+
+FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
 EXP_MINUTES = 10
 
-
-# ---------------------------------------------------------------------------
-# In-memory device code store
-# ---------------------------------------------------------------------------
-
-@dataclass
-class DeviceCodeEntry:
-    user_code: str
-    expires_at: datetime
-    verified: bool = False
-    user_id: int | None = None
-    api_key: str | None = None
-    username: str = ""
-
-
-_store: dict[str, DeviceCodeEntry] = {}   # device_code  → entry
-_uc_map: dict[str, str] = {}              # user_code    → device_code
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def generate_api_key() -> str:
     """Return a new 'bsk_' prefixed API key."""
@@ -47,23 +26,31 @@ def _make_user_code() -> str:
     return f"{part1}-{part2}"
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def generate_device_code() -> dict:
+def generate_device_code(db: Session) -> dict:
     """
-    Create a new device code entry.
+    Create a new device code entry in the database.
     Returns dict with device_code, user_code, verification_uri, expires_in.
     """
+    from models import DeviceCode
+
+    cleanup_expired_codes(db)
+
     device_code = secrets.token_urlsafe(32)
     user_code = _make_user_code()
-    entry = DeviceCodeEntry(
+    # Avoid rare collisions on user_code
+    while db.query(DeviceCode).filter(DeviceCode.user_code == user_code).first():
+        user_code = _make_user_code()
+
+    entry = DeviceCode(
+        device_code=device_code,
         user_code=user_code,
         expires_at=datetime.utcnow() + timedelta(minutes=EXP_MINUTES),
+        verified=False,
+        username="",
     )
-    _store[device_code] = entry
-    _uc_map[user_code] = device_code
+    db.add(entry)
+    db.commit()
+
     return {
         "device_code": device_code,
         "user_code": user_code,
@@ -72,58 +59,92 @@ def generate_device_code() -> dict:
     }
 
 
-def verify_device_code(user_code: str, user_id: int, api_key: str, username: str = "") -> bool:
+def verify_device_code(
+    db: Session,
+    user_code: str,
+    user_id: int,
+    api_key: str,
+    username: str = "",
+) -> bool:
     """
     Mark a device code as verified and link it to a user + api_key.
-    Called by the frontend /api/auth/verify endpoint.
     Returns True on success, False if code not found or expired.
     """
-    dc = _uc_map.get(user_code)
-    if not dc:
-        return False
-    entry = _store.get(dc)
+    from models import DeviceCode
+
+    entry = (
+        db.query(DeviceCode)
+        .filter(DeviceCode.user_code == user_code)
+        .first()
+    )
     if not entry or datetime.utcnow() > entry.expires_at:
         return False
+
     entry.verified = True
     entry.user_id = user_id
     entry.api_key = api_key
     entry.username = username
+    db.commit()
     return True
 
 
-def get_verified_token(device_code: str) -> dict | None:
+def get_verified_token(db: Session, device_code: str) -> dict | None:
     """
     Check if device_code has been verified.
     Returns {api_key, username} on success and removes the entry.
-    Returns None if not yet verified or expired.
+    Returns None if not yet verified.
+    Raises KeyError if device_code is unknown/expired (caller maps to 400).
     """
-    entry = _store.get(device_code)
+    from models import DeviceCode
+
+    entry = (
+        db.query(DeviceCode)
+        .filter(DeviceCode.device_code == device_code)
+        .first()
+    )
     if not entry:
-        return None
+        raise KeyError("device_code_not_found")
     if datetime.utcnow() > entry.expires_at:
-        _uc_map.pop(entry.user_code, None)
-        _store.pop(device_code, None)
-        return None
+        db.delete(entry)
+        db.commit()
+        raise KeyError("device_code_expired")
     if not entry.verified:
         return None
-    # One-time use — clean up
-    result = {"api_key": entry.api_key, "username": entry.username}
-    _uc_map.pop(entry.user_code, None)
-    del _store[device_code]
+
+    result = {"api_key": entry.api_key or "", "username": entry.username or ""}
+    db.delete(entry)
+    db.commit()
     return result
 
 
-def get_user_by_api_key(api_key: str, db):
+def device_code_exists(db: Session, device_code: str) -> bool:
+    from models import DeviceCode
+
+    entry = (
+        db.query(DeviceCode)
+        .filter(DeviceCode.device_code == device_code)
+        .first()
+    )
+    if not entry:
+        return False
+    if datetime.utcnow() > entry.expires_at:
+        db.delete(entry)
+        db.commit()
+        return False
+    return True
+
+
+def get_user_by_api_key(api_key: str, db: Session):
     """Query the database for a user with the given API key."""
     from models import User
+
     return db.query(User).filter(User.api_key == api_key).first()
 
 
-def cleanup_expired_codes() -> None:
-    """Remove all expired device code entries from the in-memory store."""
+def cleanup_expired_codes(db: Session) -> None:
+    """Remove all expired device code entries."""
+    from models import DeviceCode
+
     now = datetime.utcnow()
-    expired = [dc for dc, e in _store.items() if now > e.expires_at]
-    for dc in expired:
-        entry = _store.pop(dc, None)
-        if entry:
-            _uc_map.pop(entry.user_code, None)
+    db.query(DeviceCode).filter(DeviceCode.expires_at < now).delete()
+    db.commit()

@@ -51,7 +51,7 @@ SEVERITY_STYLE = {
 }
 
 # Update this URL after production deployment (Task 4.5)
-DASHBOARD_URL = "http://localhost:3000"
+DASHBOARD_URL = "https://basilisk-livid.vercel.app"
 
 
 def _resolve_llm(

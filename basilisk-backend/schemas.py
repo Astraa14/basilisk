@@ -94,3 +94,9 @@ class VerifyDeviceSchema(BaseModel):
     user_code: str
     username: str
     email: str
+
+
+class VerifyResponseSchema(BaseModel):
+    verified: bool
+    api_key: str
+    username: str

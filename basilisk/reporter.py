@@ -7,7 +7,7 @@ import logging
 import requests
 
 # Update these constants after production deployment (Task 4.5)
-BACKEND_URL = "http://localhost:8000"
+BACKEND_URL = "https://basilisk-ja22.onrender.com"
 UPLOAD_ENDPOINT = f"{BACKEND_URL}/api/scans/upload"
 
 logger = logging.getLogger(__name__)

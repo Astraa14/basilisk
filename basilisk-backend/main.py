@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Header, status
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session, joinedload
 
 import auth
 import database
@@ -17,6 +19,8 @@ from database import get_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("basilisk.backend")
+
+FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
 
 
 @asynccontextmanager
@@ -29,10 +33,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Basilisk API", lifespan=lifespan)
 
-# Allow all origins for dev. In prod, restrict to BASILISK_FRONTEND_URL
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        FRONTEND_URL,
+        "https://basilisk-livid.vercel.app",
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,19 +72,22 @@ def get_current_user(
 # ---------------------------------------------------------------------------
 
 @app.post("/api/auth/device-code", response_model=schemas.DeviceCodeSchema)
-def request_device_code():
-    auth.cleanup_expired_codes()
-    return auth.generate_device_code()
+def request_device_code(db: Session = Depends(get_db)):
+    return auth.generate_device_code(db)
 
 
-@app.post("/api/auth/verify")
+@app.post("/api/auth/verify", response_model=schemas.VerifyResponseSchema)
 def verify_device(payload: schemas.VerifyDeviceSchema, db: Session = Depends(get_db)):
-    auth.cleanup_expired_codes()
+    auth.cleanup_expired_codes(db)
 
-    # Get or create user
-    user = db.query(models.User).filter(
-        (models.User.email == payload.email) | (models.User.username == payload.username)
-    ).first()
+    user = (
+        db.query(models.User)
+        .filter(
+            (models.User.email == payload.email)
+            | (models.User.username == payload.username)
+        )
+        .first()
+    )
 
     api_key = auth.generate_api_key()
 
@@ -83,43 +95,47 @@ def verify_device(payload: schemas.VerifyDeviceSchema, db: Session = Depends(get
         user = models.User(
             username=payload.username,
             email=payload.email,
-            api_key=api_key
+            api_key=api_key,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
     else:
-        # Update existing user's API key
         user.api_key = api_key
         db.commit()
 
-    success = auth.verify_device_code(payload.user_code, user.id, api_key, user.username)
+    success = auth.verify_device_code(
+        db, payload.user_code, user.id, api_key, user.username
+    )
     if not success:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired code",
         )
 
-    return {"verified": True}
+    return {
+        "verified": True,
+        "api_key": api_key,
+        "username": user.username,
+    }
 
 
 @app.post("/api/auth/token", response_model=schemas.TokenResponseSchema)
-def poll_for_token(payload: schemas.TokenPollSchema):
-    auth.cleanup_expired_codes()
+def poll_for_token(payload: schemas.TokenPollSchema, db: Session = Depends(get_db)):
+    auth.cleanup_expired_codes(db)
 
-    if payload.device_code not in auth._store:
+    try:
+        result = auth.get_verified_token(db, payload.device_code)
+    except KeyError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Device code not found or expired",
-        )
+        ) from None
 
-    result = auth.get_verified_token(payload.device_code)
     if not result:
-        # 202 Accepted = still waiting
-        from fastapi.responses import JSONResponse
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
-            content={"status": 202, "api_key": "", "username": ""}
+            content={"status": 202, "api_key": "", "username": ""},
         )
 
     return {"status": 200, "api_key": result["api_key"], "username": result["username"]}
@@ -133,7 +149,7 @@ def poll_for_token(payload: schemas.TokenPollSchema):
 def upload_scan(
     payload: schemas.ScanReportSchema,
     user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     scan = models.Scan(
         user_id=user.id,
@@ -142,10 +158,10 @@ def upload_scan(
         forms_found=payload.forms_found,
         vulnerable=payload.vulnerable,
         mode=payload.mode,
-        status="complete"
+        status="complete",
     )
     db.add(scan)
-    db.flush()  # get scan.id
+    db.flush()
 
     for finding_data in payload.findings:
         finding = models.Finding(
@@ -153,7 +169,7 @@ def upload_scan(
             vulnerability=finding_data.vulnerability,
             severity=finding_data.severity,
             description=finding_data.description,
-            target=finding_data.target
+            target=finding_data.target,
         )
         db.add(finding)
 
@@ -164,10 +180,11 @@ def upload_scan(
 @app.get("/api/scans", response_model=list[schemas.ScanResponseSchema])
 def list_scans(
     user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     scans = (
         db.query(models.Scan)
+        .options(joinedload(models.Scan.findings))
         .filter(models.Scan.user_id == user.id)
         .order_by(models.Scan.created_at.desc())
         .all()
@@ -179,16 +196,22 @@ def list_scans(
 def get_scan(
     scan_id: int,
     user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     scan = (
         db.query(models.Scan)
+        .options(joinedload(models.Scan.findings))
         .filter(models.Scan.id == scan_id, models.Scan.user_id == user.id)
         .first()
     )
     if not scan:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scan not found"
+            detail="Scan not found",
         )
     return scan
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}

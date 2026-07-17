@@ -1,42 +1,196 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, ShieldAlert, CheckCircle2 } from 'lucide-react';
+import { Activity, AlertTriangle, Globe, ShieldAlert } from 'lucide-react';
 import { getScans } from '../services/api';
 import { loadApiKeyFromStorage } from '../services/auth';
 import { Scan } from '../types';
 
+const severityRank = (s: string) => {
+  const order: Record<string, number> = {
+    Critical: 0,
+    High: 1,
+    Medium: 2,
+    Low: 3,
+    Info: 4,
+  };
+  return order[s] ?? 9;
+};
+
 const Dashboard = () => {
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Note: in a real full SaaS platform, the user would log in via OAuth and get a user token.
-  // Since we're using the device auth flow, this dashboard serves as an authorization success page + demo dashboard.
   useEffect(() => {
-    // For this demonstration, if the CLI hasn't made scans recently, we might show a dummy or wait
-    // We try to fetch. If it fails due to the dummy web token, we handle gracefully.
-    setLoading(false);
+    const apiKey = loadApiKeyFromStorage();
+    if (!apiKey || apiKey.startsWith('bsk_web_session_')) {
+      setError('Session expired. Please run basilisk auth again.');
+      setLoading(false);
+      return;
+    }
+
+    getScans(apiKey)
+      .then(setScans)
+      .catch((err) => {
+        setError(err.response?.data?.detail || 'Failed to load scans. Re-auth with basilisk auth.');
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  const stats = useMemo(() => {
+    const uniqueTargets = new Set(scans.map((s) => s.target_url)).size;
+    const vulnerableRuns = scans.filter((s) => s.vulnerable).length;
+    const highFindings = scans.reduce((acc, scan) => {
+      const count =
+        scan.findings?.filter((f) => f.severity === 'High' || f.severity === 'Critical')
+          .length || 0;
+      return acc + count;
+    }, 0);
+    return {
+      totalRuns: scans.length,
+      uniqueTargets,
+      vulnerableRuns,
+      highFindings,
+    };
+  }, [scans]);
+
+  if (loading) {
+    return (
+      <div className="container py-4 mt-8 flex justify-center">
+        <span className="spinner" />
+      </div>
+    );
+  }
 
   return (
     <div className="container py-4 mt-8">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-xl text-bold">Recent Scans</h1>
-          <p className="text-secondary text-sm mt-4">Security audits reporting from Basilisk CLI.</p>
+          <h1 className="text-xl text-bold">Dashboard</h1>
+          <p className="text-secondary text-sm mt-4">
+            Scan analytics uploaded from your Basilisk CLI.
+          </p>
         </div>
       </div>
 
-      <div className="card p-6" style={{ textAlign: 'center' }}>
-        <Activity size={48} style={{ color: 'var(--text-secondary)', margin: '0 auto 1rem', opacity: 0.5 }} />
-        <h2 className="text-lg mb-4">Awaiting Scans</h2>
-        <p className="text-secondary text-sm mb-6">
-          Your device has been authorized successfully!<br/>
-          Go back to your terminal and run a scan to see it appear here.
-        </p>
-        <code style={{ background: 'var(--bg)', padding: '0.75rem 1rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
-          basilisk scan https://example.com
-        </code>
+      {error && (
+        <div
+          className="card p-6 mb-6 text-sm"
+          style={{ color: 'var(--critical)', borderColor: 'rgba(239,68,68,0.3)' }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div
+        className="mb-8"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: '1rem',
+        }}
+      >
+        <div className="card p-6">
+          <div className="flex items-center gap-2 text-secondary text-sm mb-4">
+            <Activity size={16} /> Total runs
+          </div>
+          <div className="text-xl text-bold">{stats.totalRuns}</div>
+        </div>
+        <div className="card p-6">
+          <div className="flex items-center gap-2 text-secondary text-sm mb-4">
+            <Globe size={16} /> Unique URLs
+          </div>
+          <div className="text-xl text-bold">{stats.uniqueTargets}</div>
+        </div>
+        <div className="card p-6">
+          <div className="flex items-center gap-2 text-secondary text-sm mb-4">
+            <ShieldAlert size={16} /> Vulnerable runs
+          </div>
+          <div className="text-xl text-bold">{stats.vulnerableRuns}</div>
+        </div>
+        <div className="card p-6">
+          <div className="flex items-center gap-2 text-secondary text-sm mb-4">
+            <AlertTriangle size={16} /> High findings
+          </div>
+          <div className="text-xl text-bold">{stats.highFindings}</div>
+        </div>
       </div>
+
+      {!error && scans.length === 0 ? (
+        <div className="card p-6" style={{ textAlign: 'center' }}>
+          <Activity
+            size={48}
+            style={{ color: 'var(--text-secondary)', margin: '0 auto 1rem', opacity: 0.5 }}
+          />
+          <h2 className="text-lg mb-4">No scans yet</h2>
+          <p className="text-secondary text-sm mb-6">
+            Run a scan from your terminal to see it here.
+          </p>
+          <code
+            style={{
+              background: 'var(--bg)',
+              padding: '0.75rem 1rem',
+              borderRadius: '4px',
+              border: '1px solid var(--border)',
+            }}
+          >
+            basilisk scan https://example.com
+          </code>
+        </div>
+      ) : (
+        <div className="card" style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                <th style={{ padding: '0.75rem 1rem' }}>When</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Target</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Mode</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Findings</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scans.map((scan) => {
+                const findingCount = scan.findings?.length ?? 0;
+                const worst =
+                  scan.findings && scan.findings.length
+                    ? [...scan.findings].sort(
+                        (a, b) => severityRank(a.severity) - severityRank(b.severity)
+                      )[0].severity
+                    : null;
+                return (
+                  <tr key={scan.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '0.75rem 1rem', whiteSpace: 'nowrap' }}>
+                      <Link to={`/scans/${scan.id}`} style={{ color: 'var(--accent)' }}>
+                        {new Date(scan.created_at).toLocaleString()}
+                      </Link>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      <Link to={`/scans/${scan.id}`}>{scan.target_url}</Link>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem' }}>{scan.mode}</td>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      {findingCount}
+                      {worst ? (
+                        <span className={`badge badge-${worst.toLowerCase()}`} style={{ marginLeft: 8 }}>
+                          {worst}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      {scan.vulnerable ? (
+                        <span className="badge badge-high">Vulnerable</span>
+                      ) : (
+                        <span className="badge badge-safe">Clean</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };
