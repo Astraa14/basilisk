@@ -1,0 +1,1056 @@
+================================================================================
+🚀 BASILISK FULL BUILD PLAN - COMPLETE INSTRUCTIONS
+================================================================================
+
+OVERVIEW
+--------
+Transform Basilisk from local CLI tool into a complete SaaS platform where users:
+1. Install the tool with one command
+2. Login once with `basilisk auth` (opens browser)
+3. Run scans that automatically upload to a web dashboard
+4. View all their scan reports and findings on a website
+
+
+================================================================================
+PHASE 1: UPDATE CLI TO SUPPORT LOGIN & AUTO-UPLOAD
+================================================================================
+
+TASK 1.1: Create Config Manager
+--------------------------------
+File: basilisk/config.py
+
+Create a new module that manages local configuration storage. It should:
+- Create a hidden directory at ~/.basilisk/ (cross-platform, works on Windows/Mac/Linux)
+- Save the backend API key to a JSON file in that directory
+- Load the backend API key from that file when needed
+- Handle logout by deleting the config file
+- Keep the .env loading functionality for LLM keys separate
+
+Functions to create:
+- ensure_config_dir() - creates ~/.basilisk/ if it doesn't exist
+- save_backend_api_key(key, username) - saves to JSON file
+- load_backend_api_key() - reads from JSON file, returns None if not found
+- load_backend_username() - reads username from JSON file
+- clear_config() - deletes the JSON file for logout
+- config_exists() - checks if config file exists
+
+Dependencies needed:
+- from pathlib import Path
+- import json
+- Path.home() for cross-platform home directory
+
+
+TASK 1.2: Create Reporter Module
+---------------------------------
+File: basilisk/reporter.py
+
+Create a new module that sends completed scan reports to your backend server. It should:
+- Take the scan report (already a dict from models.py ScanReport.to_dict())
+- Take the backend API key from config
+- Send an HTTP POST request to backend endpoint: https://api.basilisk.app/api/scans/upload
+- Include the API key in the Authorization header as Bearer token
+- Handle network failures gracefully (don't crash, just log a warning)
+- Return the scan_id if successful, None if it fails
+- Log helpful messages (success, failures, missing key)
+
+Function to create:
+- send_report_to_backend(report: dict, api_key: str) - returns scan_id or None
+
+Error handling:
+- If api_key is None, just log tip "Run basilisk auth to save scans"
+- If network error, log warning but don't crash
+- If 401 error, tell user API key is invalid
+- If 201 Created, extract scan_id from response and return it
+
+Dependencies needed:
+- import requests
+- from basilisk.config import load_backend_api_key
+
+
+TASK 1.3: Create Device Auth Module
+------------------------------------
+File: basilisk/auth.py
+
+Create a new module that handles browser-based login using device code flow 
+(like GitHub CLI auth). This way users don't type passwords in terminal. It should:
+- Request a device code from the backend
+- Get back a user code (like ABC-DEF-GHI) and verification URL
+- Open user's default browser to that URL
+- Poll the backend repeatedly to check if user confirmed in browser
+- When confirmed, receive and return the backend API key
+- Timeout after 60 seconds if user doesn't confirm
+
+Functions to create:
+- request_device_code() - calls backend POST /api/auth/device-code, 
+  returns device_code, user_code, verification_uri
+- poll_for_backend_key(device_code) - repeatedly calls backend POST /api/auth/token 
+  until user confirms, returns api_key
+- open_auth_browser(url) - opens URL in default browser using webbrowser module
+
+Flow:
+1. User runs `basilisk auth`
+2. CLI calls request_device_code()
+3. CLI prints the URL and code
+4. CLI calls open_auth_browser() to open browser
+5. CLI shows loading spinner and calls poll_for_backend_key()
+6. When user confirms in browser, returns api_key
+7. CLI saves api_key with config.save_backend_api_key()
+
+Dependencies needed:
+- import webbrowser
+- import requests
+- import time
+
+
+TASK 1.4: Add `auth` Command to CLI
+-----------------------------------
+File: basilisk/cli.py - Add new function
+
+Add a new Typer command called `auth` that:
+- Shows a welcome banner with Rich
+- Calls the auth module to get device code
+- Prints the verification URL and user code prominently (with colors so it's easy to read)
+- Opens the browser automatically
+- Shows a spinner saying "Waiting for browser confirmation..."
+- When complete, saves the API key using config module
+- Prints success message with username
+- Prints tip about next step: "Next: basilisk scan https://example.com"
+
+Command signature:
+- Command name: "auth"
+- No arguments needed
+- No options needed
+
+Import needed:
+- from basilisk import auth
+- from basilisk.config import save_backend_api_key
+
+
+TASK 1.5: Add `logout` Command to CLI
+-------------------------------------
+File: basilisk/cli.py - Add new function
+
+Add a new simple Typer command called `logout` that:
+- Calls config.clear_config() to delete the stored API key
+- Prints a green success message
+- Does nothing if config doesn't exist (idempotent)
+
+Command signature:
+- Command name: "logout"
+- No arguments
+- No options
+
+Import needed:
+- from basilisk.config import clear_config
+
+
+TASK 1.6: Update `scan` Command to Auto-Upload
+----------------------------------------------
+File: basilisk/cli.py - Modify existing scan command
+
+After the scan completes and results are printed, add code to:
+- Try to load the backend API key from config
+- If key exists:
+  - Call reporter.send_report_to_backend()
+  - If successful (got scan_id), print a link to view the scan on dashboard
+  - If failed, just log a warning but don't crash
+- If key doesn't exist:
+  - Print a tip: "Run 'basilisk auth' to save scans to your dashboard"
+
+Make sure:
+- Upload happens after local results are printed (so user sees results immediately)
+- Upload failure doesn't affect the command exit code
+- Print is helpful: "View at: https://basilisk.app/scans/{scan_id}"
+
+Import needed:
+- from basilisk.reporter import send_report_to_backend
+- from basilisk.config import load_backend_api_key
+
+
+TASK 1.7: Update `login` Command to Auto-Upload
+-----------------------------------------------
+File: basilisk/cli.py - Modify existing login_scan command
+
+Same changes as scan command - after login probe completes:
+- Try to load backend API key
+- If exists, upload the report
+- Print success link or tip
+
+
+TASK 1.8: Update README.md
+--------------------------
+File: README.md - Add new section
+
+Add a section called "SaaS Dashboard" that explains:
+- Users can now upload scans to a central dashboard
+- First time: run `basilisk auth` (opens browser to create account)
+- Then: run `basilisk scan https://example.com` (auto-uploads)
+- View results at: https://basilisk.app/dashboard
+- To logout: run `basilisk logout`
+
+
+================================================================================
+PHASE 2: BUILD BACKEND API (Python FastAPI)
+================================================================================
+
+TASK 2.1: Create Backend Project Structure
+-------------------------------------------
+
+Create a new separate repository called `basilisk-backend` with this folder structure:
+
+basilisk-backend/
+├── main.py (FastAPI app and all routes)
+├── models.py (SQLAlchemy database models)
+├── schemas.py (Pydantic request/response schemas)
+├── auth.py (Device code flow logic)
+├── database.py (Database connection and setup)
+├── requirements.txt (Python dependencies)
+├── .env.example (example environment variables)
+└── docker-compose.yml (PostgreSQL database)
+
+This is separate from the CLI repo because it's a different service that runs on a server.
+
+
+TASK 2.2: Create requirements.txt
+---------------------------------
+File: basilisk-backend/requirements.txt
+
+List all Python dependencies needed for the backend:
+- fastapi==0.104.1 - web framework
+- uvicorn[standard]==0.24.0 - ASGI server to run FastAPI
+- sqlalchemy==2.0.23 - database ORM
+- psycopg2-binary==2.9.9 - PostgreSQL driver
+- pydantic==2.5.0 - request/response validation
+- pydantic-settings==2.1.0 - environment variable validation
+- python-dotenv==1.0.0 - load .env file
+- requests==2.31.0 - for HTTP calls if needed
+- python-multipart==0.0.6 - for form data parsing
+
+
+TASK 2.3: Create Database Models
+--------------------------------
+File: basilisk-backend/models.py
+
+Create SQLAlchemy models for three tables:
+
+1. User table:
+   - id (primary key, auto increment)
+   - username (string, unique, indexed)
+   - email (string, unique, indexed)
+   - api_key (string, unique, indexed) - the key CLI uses to authenticate
+   - created_at (timestamp, auto-set)
+   - updated_at (timestamp, auto-set on update)
+
+2. Scan table:
+   - id (primary key, auto increment)
+   - user_id (foreign key to User)
+   - target_url (string) - what website was scanned
+   - pages_scanned (integer)
+   - forms_found (integer)
+   - vulnerable (boolean)
+   - mode (string) - either 'llm' or 'static'
+   - status (string) - either 'complete', 'processing', or 'error'
+   - created_at (timestamp, auto-set)
+   - findings (relationship to Finding table, one-to-many)
+
+3. Finding table:
+   - id (primary key, auto increment)
+   - scan_id (foreign key to Scan)
+   - vulnerability (string) - name of the vulnerability found
+   - severity (string) - Critical, High, Medium, Low, or Info
+   - description (string) - what was found and why
+   - target (string) - URL where the vulnerability was found
+   - created_at (timestamp, auto-set)
+
+Use SQLAlchemy declarative base and define all relationships properly.
+
+
+TASK 2.4: Create Pydantic Schemas
+---------------------------------
+File: basilisk-backend/schemas.py
+
+Create Pydantic models for request/response validation. These convert between JSON 
+and Python objects:
+
+1. FindingSchema - for finding data in requests/responses
+   - vulnerability (str)
+   - severity (str)
+   - description (str)
+   - target (str)
+
+2. ScanReportSchema - what CLI sends to backend when uploading
+   - target (str)
+   - pages_scanned (int)
+   - forms_found (int)
+   - vulnerable (bool)
+   - findings (list[FindingSchema])
+   - mode (str)
+
+3. ScanResponseSchema - what dashboard gets when requesting scan details
+   - id (int)
+   - user_id (int)
+   - target_url (str)
+   - pages_scanned (int)
+   - forms_found (int)
+   - vulnerable (bool)
+   - mode (str)
+   - status (str)
+   - created_at (datetime)
+   - findings (list[FindingSchema])
+
+4. UserSchema - user data returned to frontend
+   - id (int)
+   - username (str)
+   - email (str)
+   - created_at (datetime)
+
+5. DeviceCodeSchema - response when requesting device code for login
+   - device_code (str)
+   - user_code (str)
+   - verification_uri (str)
+   - expires_in (int) - in seconds
+
+6. TokenPollSchema - request body when polling for token
+   - device_code (str)
+
+7. TokenResponseSchema - response when token is ready
+   - api_key (str)
+   - username (str)
+   - status (int) - 200 for success, 202 for still waiting
+
+8. VerifyDeviceSchema - request body for verifying device code from frontend
+   - user_code (str)
+   - username (str)
+   - email (str)
+
+
+TASK 2.5: Create Database Connection Module
+--------------------------------------------
+File: basilisk-backend/database.py
+
+Create a module that sets up database connection:
+- Read DATABASE_URL from .env file
+- Create SQLAlchemy engine for PostgreSQL
+- Create session maker for creating DB sessions
+- Create get_db() generator function that FastAPI can use as a dependency
+- Call create_all() on startup to create tables if they don't exist
+
+Import needed:
+- from sqlalchemy import create_engine
+- from sqlalchemy.orm import sessionmaker
+- from models import Base
+- import os
+
+
+TASK 2.6: Create Auth Service
+-----------------------------
+File: basilisk-backend/auth.py
+
+Create functions to handle device code flow authentication:
+
+1. generate_device_code() function:
+   - Create random device_code string (32 chars using secrets module)
+   - Create random user_code string (6 chars like ABC-DEF-GHI)
+   - Create verification_uri URL pointing to frontend auth page
+   - Store in Redis (or in-memory dict) with 10-minute expiry
+   - Mark as not-yet-verified in storage
+   - Return all three values
+   - You can use a simple dict with datetime expiry for now
+
+2. verify_device_code(user_code, user_id) function:
+   - Look up the device code by user_code in storage
+   - Mark it as verified=True
+   - Link it to user_id
+   - Return True if found and updated
+   - Return False if not found
+
+3. get_verified_token(device_code) function:
+   - Check if device_code exists in storage
+   - Check if it's marked verified=True
+   - If yes: generate new API key, save to User.api_key in database
+   - Delete the device code entry from storage (one-time use)
+   - Return the API key
+   - If not verified yet: return None
+
+4. generate_api_key() function:
+   - Create random 32-character string using secrets.token_urlsafe()
+   - Prefix with "bsk_" so it's clearly a Basilisk key
+   - Return the key
+
+5. get_user_by_api_key(api_key, db) function:
+   - Query database for User with matching api_key
+   - Return User object or None
+
+6. cleanup_expired_codes() function (optional):
+   - Remove expired device codes from storage
+   - Can run periodically or on each request
+
+
+TASK 2.7: Create FastAPI Main App
+---------------------------------
+File: basilisk-backend/main.py
+
+Create the FastAPI application with these endpoints:
+
+AUTHENTICATION ENDPOINTS:
+
+1. POST /api/auth/device-code
+   - No request body needed
+   - Returns DeviceCodeSchema (device_code, user_code, verification_uri, expires_in)
+   - Calls generate_device_code() from auth module
+   - Stores device code in storage
+   - HTTP 200 OK
+
+2. POST /api/auth/verify
+   - Request body: VerifyDeviceSchema (user_code, username, email)
+   - Returns {"verified": true}
+   - Looks up device code by user_code
+   - Creates User in database if doesn't exist (with username and email)
+   - Marks device code as verified and linked to user_id
+   - This endpoint is called by the FRONTEND when user confirms in browser
+   - HTTP 200 OK or 400 Bad Request
+
+3. POST /api/auth/token
+   - Request body: TokenPollSchema (device_code)
+   - Returns TokenResponseSchema
+   - If device code doesn't exist: 400 error
+   - If device code exists but not verified: return {status: 202} (still waiting), HTTP 202
+   - If device code verified: 
+     - generate api_key
+     - save to user
+     - return {api_key, username, status: 200}, HTTP 200
+   - This endpoint is polled by the CLI
+
+SCAN UPLOAD ENDPOINT:
+
+4. POST /api/scans/upload
+   - Request body: ScanReportSchema (the scan report from CLI)
+   - Header: Authorization: Bearer <api_key>
+   - Returns {"scan_id": 123, "status": "created"}
+   - HTTP 201 Created
+   - Extract api_key from Authorization header using get_current_user dependency
+   - Find user by api_key (if not found: 401 error)
+   - Create Scan record in database for this user
+   - Create Finding records for each finding in the report
+   - Save all to database and commit
+   - Return scan_id
+
+SCAN RETRIEVAL ENDPOINTS:
+
+5. GET /api/scans
+   - Header: Authorization: Bearer <api_key>
+   - Returns: list of ScanResponseSchema
+   - HTTP 200 OK
+   - Extract api_key and get user using get_current_user dependency
+   - Query all Scans for this user, ordered by created_at DESC (newest first)
+   - Return as array of ScanResponseSchema
+
+6. GET /api/scans/{scan_id}
+   - Header: Authorization: Bearer <api_key>
+   - Path parameter: scan_id (integer)
+   - Returns: single ScanResponseSchema with all findings
+   - HTTP 200 OK if found, 404 if not found
+   - Extract api_key and get user using get_current_user dependency
+   - Query Scan by ID where user_id matches
+   - If not found: 404 error
+   - Include all findings for that scan (via relationship)
+   - Return scan with findings
+
+HELPER DEPENDENCY:
+
+7. get_current_user(authorization: str = Header(None), db: Session)
+   - Dependency that all protected endpoints use
+   - Extract api_key from "Bearer <api_key>" format
+   - If Authorization header missing or wrong format: raise 401 Unauthorized
+   - Call get_user_by_api_key()
+   - If not found: raise 401 Unauthorized
+   - Return user object
+
+ERROR HANDLING:
+- 400: Invalid request (missing required fields, invalid format)
+- 401: Unauthorized (missing/invalid API key)
+- 404: Not found (scan doesn't exist)
+- 500: Server error (unexpected exception)
+
+CORS CONFIGURATION:
+- Use CORSMiddleware from fastapi.middleware.cors
+- Allow all origins for now (*, ), restrict later to basilisk.app domain only
+- Allow all methods and headers
+
+STARTUP:
+- Create all tables with database.Base.metadata.create_all(engine)
+- Log that server is running
+
+
+TASK 2.8: Create .env.example for Backend
+-----------------------------------------
+File: basilisk-backend/.env.example
+
+Create template with these variables:
+
+DATABASE_URL=postgresql://postgres:password@localhost:5432/basilisk_db
+SECRET_KEY=your-secret-key-here-change-in-production
+DEBUG=True
+BASILISK_FRONTEND_URL=http://localhost:3000
+BASILISK_BACKEND_URL=http://localhost:8000
+
+
+TASK 2.9: Create Docker Compose for PostgreSQL
+----------------------------------------------
+File: basilisk-backend/docker-compose.yml
+
+Create configuration to run PostgreSQL database in Docker:
+- Service name: postgres
+- Image: postgres:15
+- Environment variables:
+  - POSTGRES_USER: postgres
+  - POSTGRES_PASSWORD: password
+  - POSTGRES_DB: basilisk_db
+- Port: 5432 mapped to host 5432
+- Volume: for persistent storage at /var/lib/postgresql/data
+
+This makes it easy for developers to run: docker-compose up
+
+
+================================================================================
+PHASE 3: BUILD REACT FRONTEND DASHBOARD
+================================================================================
+
+TASK 3.1: Create React Project Structure
+----------------------------------------
+
+Create a new separate repository called `basilisk-frontend` with folder structure:
+
+basilisk-frontend/
+├── src/
+│   ├── components/
+│   │   ├── Navbar.tsx
+│   │   ├── ScanList.tsx
+│   │   ├── ScanDetail.tsx
+│   │   ├── FindingCard.tsx
+│   │   ├── LoginFlow.tsx
+│   │   └── ProtectedRoute.tsx
+│   ├── pages/
+│   │   ├── Dashboard.tsx
+│   │   ├── ScanDetailPage.tsx
+│   │   ├── AuthPage.tsx
+│   │   └── NotFound.tsx
+│   ├── services/
+│   │   ├── api.ts (HTTP client)
+│   │   └── auth.ts (auth logic)
+│   ├── types/
+│   │   └── index.ts (TypeScript interfaces)
+│   ├── App.tsx
+│   └── index.tsx
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+└── .env.example
+
+This is a separate repository because frontend is deployed separately from backend.
+
+
+TASK 3.2: Set Up React with Vite
+--------------------------------
+File: basilisk-frontend/package.json
+
+Create package.json with:
+- React and React DOM (latest version)
+- React Router for page navigation
+- Axios for HTTP requests
+- TypeScript
+- Vite as build tool
+
+Development scripts:
+- "dev": "vite" - run locally on localhost:3000
+- "build": "tsc && vite build" - production build
+- "preview": "vite preview" - test production build locally
+
+
+TASK 3.3: Create TypeScript Types
+---------------------------------
+File: basilisk-frontend/src/types/index.ts
+
+Define TypeScript interfaces that match backend models:
+
+1. Finding interface:
+   - id: number
+   - vulnerability: string
+   - severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Info'
+   - description: string
+   - target: string
+
+2. Scan interface:
+   - id: number
+   - target_url: string
+   - pages_scanned: number
+   - forms_found: number
+   - vulnerable: boolean
+   - mode: 'llm' | 'static'
+   - status: 'complete' | 'processing' | 'error'
+   - created_at: string
+   - findings?: Finding[]
+
+3. User interface:
+   - id: number
+   - username: string
+   - email: string
+
+4. AuthContext interface:
+   - user: User | null
+   - apiKey: string | null
+   - login: (apiKey: string) => void
+   - logout: () => void
+
+
+TASK 3.4: Create API Service
+----------------------------
+File: basilisk-frontend/src/services/api.ts
+
+Create HTTP client functions to call backend:
+
+1. createApiClient(baseURL: string, apiKey: string) - creates axios instance
+   - Set baseURL from environment variable (VITE_BACKEND_URL)
+   - Add Authorization header: "Bearer <apiKey>"
+   - Handle errors: 401, 404, 500 etc
+   - Show error messages to user
+
+2. getScans(apiKey: string)
+   - GET /api/scans
+   - Returns list of scans
+
+3. getScanDetail(scanId: number, apiKey: string)
+   - GET /api/scans/{scanId}
+   - Returns scan with findings
+
+4. Error handler function
+   - Handle network errors
+   - Handle API errors with proper messages
+
+
+TASK 3.5: Create Auth Service
+-----------------------------
+File: basilisk-frontend/src/services/auth.ts
+
+Create functions for authentication:
+
+1. requestDeviceCode()
+   - calls POST /api/auth/device-code
+   - Returns device_code, user_code, verification_uri
+
+2. verifyUserInBrowser(user_code, username, email)
+   - calls POST /api/auth/verify
+   - Body: {user_code, username, email}
+   - Returns verified: true
+
+3. pollForApiKey(device_code)
+   - calls POST /api/auth/token repeatedly
+   - Body: {device_code}
+   - Polls every 1 second
+   - Returns api_key when status is 200
+   - Times out after 60 seconds
+
+4. saveApiKeyLocally(key)
+   - saves to localStorage with key "basilisk_api_key"
+
+5. loadApiKeyFromStorage()
+   - loads from localStorage
+   - returns key or null
+
+6. clearAuth()
+   - removes from localStorage
+   - clears user session
+
+
+TASK 3.6: Create Login Page Component
+-------------------------------------
+File: basilisk-frontend/src/pages/AuthPage.tsx
+
+Create a page for device code flow authentication that:
+- Shows instructions to user
+- Shows "Enter the 6-character code from your terminal"
+- Has input field for user code (6 chars like ABC-DEF-GHI)
+- Has input field for username/email
+- Shows "Verify" button
+- When user enters code and clicks verify:
+  - Calls auth.verifyUserInBrowser()
+  - Gets api_key back from backend
+  - Saves to localStorage
+  - Redirects to dashboard
+
+Flow:
+1. Show title "Basilisk Authentication"
+2. Show code from terminal: ABC-DEF-GHI (placeholder or actual from query param)
+3. Show input for 6-char code
+4. Show input for email/username
+5. Show "Verify" button
+6. On success: save key and redirect to /dashboard
+7. On error: show error message in red
+8. Support manual code entry if not in URL
+
+Styling:
+- Clean, simple layout
+- Center on screen
+- Show branding
+
+
+TASK 3.7: Create Dashboard Page
+-------------------------------
+File: basilisk-frontend/src/pages/Dashboard.tsx
+
+Create main dashboard page that shows:
+- Navbar with user info and logout button at top
+- Page title "My Scans"
+- List of all scans for logged-in user
+- For each scan show:
+  - Target URL
+  - Date scanned (formatted nicely)
+  - Number of vulnerabilities found
+  - Vulnerability count badge (red if vulnerable, green if safe)
+  - Click to view details
+
+Features:
+- Load scans on page mount
+- Sort by newest first (default)
+- Color-code by vulnerability status:
+  - Red background/border if vulnerable=true
+  - Green background/border if vulnerable=false
+- Click a scan row to navigate to /scans/{scanId}
+- Logout button in navbar
+- Show loading spinner while fetching scans
+- Show "No scans yet" message if empty
+- Show error message if fetch fails
+- Refresh button to reload scans
+
+Layout:
+- Navbar at top
+- Main content area with title
+- Table or card list of scans
+- Each row clickable
+
+
+TASK 3.8: Create Scan Detail Page
+---------------------------------
+File: basilisk-frontend/src/pages/ScanDetailPage.tsx
+
+Create page that shows detailed results of one scan:
+- Back button to return to dashboard
+- Scan metadata in card:
+  - Target URL
+  - Date scanned
+  - Pages scanned
+  - Forms found
+  - Total findings count
+  - Mode (LLM or Static)
+  - Vulnerability status (Vulnerable / Safe)
+- List of findings:
+  - Each finding as expandable card
+  - Show: vulnerability name, severity, description, target URL
+  - Severity color-coded:
+    - Red for Critical/High
+    - Yellow for Medium
+    - Blue for Low
+    - Gray for Info
+
+For each finding, show:
+- Expand/collapse to see full description
+- Severity badge with color
+- Vulnerability type
+- URL where found
+- Full description on expand
+- Copy button to copy finding details
+
+Features:
+- Load scan details on mount
+- Show loading spinner while fetching
+- Handle errors (404 if scan not found - redirect to dashboard)
+- Back button to return to dashboard
+- Summary statistics at top
+- Findings sorted by severity (Critical first)
+- Filter by severity (optional)
+- Export findings as JSON (optional)
+
+Styling:
+- Card-based layout
+- Color-coded severity
+- Easy to read
+- Good spacing
+
+
+TASK 3.9: Create Navigation/Navbar Component
+---------------------------------------------
+File: basilisk-frontend/src/components/Navbar.tsx
+
+Simple navbar that shows:
+- Basilisk logo/title on left (clickable link to dashboard)
+- User email/username in middle
+- Logout button on right
+
+When logout clicked:
+- Call auth.clearAuth()
+- Clear localStorage
+- Redirect to /auth page
+- Show confirmation message
+
+Styling:
+- Horizontal bar at top
+- Dark background
+- Light text
+- Professional look
+
+
+TASK 3.10: Create Protected Route Component
+-------------------------------------------
+File: basilisk-frontend/src/components/ProtectedRoute.tsx
+
+Create a wrapper for pages that require authentication:
+- Check if api_key exists in localStorage
+- If yes: render the page component
+- If no: redirect to /auth page
+- Show loading while checking
+
+This wraps:
+- Dashboard page
+- ScanDetailPage
+
+
+TASK 3.11: Create App Router
+----------------------------
+File: basilisk-frontend/src/App.tsx
+
+Set up React Router with routes:
+- /auth - AuthPage (login with device code)
+- /dashboard - Dashboard page (list of scans) - protected route
+- /scans/:id - ScanDetailPage (one scan details) - protected route
+- / - redirect to /dashboard (or /auth if not logged in)
+- * - NotFound page (404)
+
+Use ProtectedRoute wrapper for authenticated pages.
+
+Setup:
+- Create BrowserRouter
+- Create Routes
+- Wrap protected pages with ProtectedRoute
+- Redirect root to /dashboard
+
+
+TASK 3.12: Create .env.example for Frontend
+--------------------------------------------
+File: basilisk-frontend/.env.example
+
+Variables:
+- VITE_BACKEND_URL=http://localhost:8000
+
+Use VITE_ prefix for Vite environment variables (they're public).
+
+
+================================================================================
+PHASE 4: INTEGRATION & DEPLOYMENT
+================================================================================
+
+TASK 4.1: Test Auth Flow End-to-End
+-----------------------------------
+
+Test the complete authentication flow:
+1. Start backend: python -m uvicorn main:app --reload (in basilisk-backend/)
+2. Start frontend: npm run dev (in basilisk-frontend/)
+3. Install CLI locally: pip install -e . (in basilisk-cli/)
+4. Run: basilisk auth
+5. Browser should open to http://localhost:3000/auth
+6. In terminal, get the 6-char code
+7. In browser, enter code and email
+8. Click Verify
+9. Browser redirects to /dashboard
+10. Terminal shows "✓ Logged in as user@example.com"
+11. Verify api_key is saved in ~/.basilisk/config.json
+
+
+TASK 4.2: Test Scan Upload End-to-End
+-------------------------------------
+
+Test that scan uploads work:
+1. Keep backend and frontend running
+2. Run: basilisk scan https://httpbin.org/forms/post
+   (or any test website with forms)
+3. Scan completes and prints results to terminal
+4. Report automatically uploads to backend
+5. CLI prints "View at: http://localhost:3000/scans/{id}"
+6. Go to that URL in browser
+7. See the scan results on dashboard
+8. Verify findings are displayed correctly
+9. Check database directly to verify data was saved
+
+
+TASK 4.3: Deploy Backend
+------------------------
+
+Tasks to complete:
+- Push basilisk-backend to GitHub
+- Choose hosting: Railway, Heroku, AWS, Render, DigitalOcean, or similar
+- Set up PostgreSQL database on server (AWS RDS, Heroku Postgres, etc)
+- Deploy FastAPI app to hosting
+- Set environment variables on production server:
+  - DATABASE_URL (production database)
+  - SECRET_KEY (production secret)
+  - DEBUG=False
+  - BASILISK_FRONTEND_URL (production frontend URL)
+  - BASILISK_BACKEND_URL (production backend URL)
+- Test all endpoints work from production
+- Set up logs/monitoring
+
+
+TASK 4.4: Deploy Frontend
+-------------------------
+
+Tasks to complete:
+- Push basilisk-frontend to GitHub
+- Choose hosting: Vercel, Netlify, GitHub Pages, AWS S3, or similar
+- Update .env with production backend URL
+- Build: npm run build
+- Deploy built files
+- Update VITE_BACKEND_URL to production backend
+- Test all pages work on production
+- Set up custom domain if desired
+
+
+TASK 4.5: Update CLI for Production
+-----------------------------------
+
+Tasks to complete:
+- Update backend URLs in reporter.py and auth.py:
+  - Change from http://localhost:8000 to https://api.basilisk.app
+  - Change from http://localhost:3000 to https://basilisk.app
+- Update CLI package configuration
+- Push to GitHub/PyPI
+- Test end-to-end with real deployed services
+- Update README with installation command: pip install basilisk
+- Create releases/tags for versions
+
+
+TASK 4.6: Set Up Monitoring & Logging
+-------------------------------------
+
+Tasks to complete:
+- Set up error tracking (Sentry, or similar)
+- Set up logging for backend (logs on server)
+- Monitor database performance
+- Set up uptime monitoring for APIs
+- Create status page for users
+- Set up alerts for critical errors
+
+
+================================================================================
+SUMMARY OF THREE SEPARATE REPOSITORIES
+================================================================================
+
+After completion, you'll have three separate projects:
+
+1. basilisk-cli (update existing Astraa14/basilisk)
+   Location: https://github.com/Astraa14/basilisk
+   Purpose: Local scanning tool
+   Can: auth, upload reports, work offline or online
+   Tech: Python, Typer, Rich, requests
+   Deployed via: PyPI (pip install basilisk)
+
+2. basilisk-backend (new repository)
+   Location: https://github.com/Astraa14/basilisk-backend (example)
+   Purpose: API server that receives and stores scan reports
+   Tech: Python, FastAPI, SQLAlchemy, PostgreSQL
+   Deployed to: Railway, Heroku, AWS, or similar
+   URL: https://api.basilisk.app (example)
+
+3. basilisk-frontend (new repository)
+   Location: https://github.com/Astraa14/basilisk-frontend (example)
+   Purpose: React dashboard for users to view scans
+   Tech: React, TypeScript, Vite, Axios, React Router
+   Deployed to: Vercel, Netlify, or similar
+   URL: https://basilisk.app (example)
+
+
+================================================================================
+USER WORKFLOW AFTER EVERYTHING IS BUILT
+================================================================================
+
+FIRST TIME SETUP:
+$ pip install basilisk
+
+$ basilisk auth
+→ Browser opens to https://basilisk.app/auth
+→ Shows 6-character code: ABC-DEF-GHI
+→ User enters code in browser
+→ User enters email/username
+→ Click Verify
+→ Browser confirms authentication
+→ Terminal shows: "✓ Logged in as user@example.com"
+→ API key saved to ~/.basilisk/config.json
+
+
+EVERY SCAN:
+$ basilisk scan https://target.com
+→ Scan runs locally
+→ Tests for vulnerabilities
+→ Prints results to terminal
+→ Auto-uploads to backend
+→ Prints: "✓ View at: https://basilisk.app/scans/12345"
+→ User clicks link or goes to dashboard
+→ Sees scan results on website
+
+NEXT SCANS:
+$ basilisk scan https://another-target.com
+→ Same process, no login needed (key already saved)
+→ Results appear on dashboard automatically
+→ User can view history anytime
+
+
+DASHBOARD FEATURES:
+- View all scans in one place
+- Click scan to see detailed findings
+- See vulnerability details and descriptions
+- Track scanning history
+- View results from any device (just log in)
+
+
+================================================================================
+QUICK START FOR DEVELOPMENT
+================================================================================
+
+SETUP BACKEND LOCALLY:
+1. cd basilisk-backend
+2. python -m venv venv
+3. source venv/bin/activate (or venv\Scripts\activate on Windows)
+4. pip install -r requirements.txt
+5. docker-compose up (starts PostgreSQL)
+6. python -m uvicorn main:app --reload
+
+SETUP FRONTEND LOCALLY:
+1. cd basilisk-frontend
+2. npm install
+3. npm run dev
+
+SETUP CLI LOCALLY:
+1. cd basilisk
+2. pip install -e .
+
+TEST AUTH FLOW:
+1. Open http://localhost:3000/auth in browser
+2. Run: basilisk auth
+3. Enter code and email
+4. Should redirect to dashboard
+
+
+================================================================================
+NEXT STEPS
+================================================================================
+
+1. Create basilisk-backend repository on GitHub
+2. Create basilisk-frontend repository on GitHub
+3. Start with Phase 1: Update CLI (easy, just add 3 Python files)
+4. Then Phase 2: Build Backend (FastAPI + database)
+5. Then Phase 3: Build Frontend (React)
+6. Finally Phase 4: Test and Deploy
+
+This is your complete build plan. Use this as reference when building!
+
+================================================================================
+END OF BUILD PLAN
+================================================================================
