@@ -1,7 +1,9 @@
 import axios from 'axios';
 import { Scan } from '../types';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://basilisk-ja22.onrender.com';
+const BACKEND_URL = import.meta.env.PROD 
+  ? 'https://basilisk-ja22.onrender.com' 
+  : (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000');
 
 export const createApiClient = (apiKey: string) => {
   return axios.create({
