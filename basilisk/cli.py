@@ -72,9 +72,14 @@ def _resolve_llm(
     return False, api_key
 
 
-def _draw_basilisk_logo() -> Text:
+from rich.console import Group
+
+def _draw_basilisk_logo() -> Group:
     art = pyfiglet.figlet_format("BASILISK", font="block")
-    return Text(art, style="bold green", justify="center")
+    logo = Text(art, style="bold green", justify="center")
+    subtitle = Text("Advanced Web Vulnerability Scanner & Reconnaissance Engine", style="dim italic", justify="center")
+    spacer = Text("", justify="center")
+    return Group(logo, subtitle, spacer)
 
 def _banner(url: str, mode: str = "static") -> None:
     if mode == "llm":
