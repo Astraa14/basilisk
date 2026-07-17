@@ -8,7 +8,7 @@ import webbrowser
 import requests
 
 BACKEND_URL = "https://basilisk-ja22.onrender.com"
-FRONTEND_URL = "https://basilisk-livid.vercel.app"
+FRONTEND_URL = "https://basilisk-scan.vercel.app"
 
 DEVICE_CODE_ENDPOINT = f"{BACKEND_URL}/api/auth/device-code"
 TOKEN_ENDPOINT = f"{BACKEND_URL}/api/auth/token"
