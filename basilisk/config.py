@@ -26,7 +26,7 @@ def load_backend_api_key() -> str | None:
     if not CONFIG_FILE.exists():
         return None
     try:
-        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
         return data.get("api_key") or None
     except Exception:
         return None
@@ -37,7 +37,7 @@ def load_backend_username() -> str | None:
     if not CONFIG_FILE.exists():
         return None
     try:
-        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        data = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
         return data.get("username") or None
     except Exception:
         return None
