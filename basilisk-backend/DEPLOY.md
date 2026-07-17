@@ -1,48 +1,53 @@
-# Deploying Basilisk Context
+# Deploying Basilisk SaaS
 
-Since you are transitioning Basilisk into a full SaaS platform, the services must be hosted.
-Here is the checklist.
+## Live URLs
 
-## 1. Hosting the Backend (FastAPI + PostgreSQL)
+- Backend: https://basilisk-ja22.onrender.com
+- Frontend: https://basilisk-livid.vercel.app
 
-We recommend **Railway**, **Render**, or **Heroku** as they seamlessly support Docker/Python and PostgreSQL.
+## After pulling these SaaS fixes
 
-### Steps:
-1. Push `basilisk-backend` to a GitHub repository.
-2. Sign in to your hosting provider and link the repo.
-3. Add a PostgreSQL database add-on (often automatic).
-4. Set the following environment variables in your provider's dashboard:
-   - `DATABASE_URL` (usually provided automatically by the database add-on)
-   - `SECRET_KEY` (generate a random 32+ char string and put it here)
+### 1. Redeploy backend (Render)
+
+Required because device codes are now stored in the database (new `device_codes` table).
+
+1. Push `basilisk-backend` changes (or the monorepo root if Render deploys from it).
+2. Confirm env vars on Render:
+   - `DATABASE_URL` (Postgres add-on)
+   - `SECRET_KEY`
    - `DEBUG=False`
-   - `BASILISK_FRONTEND_URL` (e.g., `https://basilisk.app`)
-   - `BASILISK_BACKEND_URL` (e.g., `https://api.basilisk.app`)
-5. Deploy the service. (FastAPI via Uvicorn will automatically create all tables on startup due to `create_tables()` in `main.py`).
+   - `BASILISK_FRONTEND_URL=https://basilisk-livid.vercel.app`
+   - `BASILISK_BACKEND_URL=https://basilisk-ja22.onrender.com`
+3. Deploy. On startup `create_tables()` creates the new `device_codes` table.
 
-## 2. Hosting the Frontend (React + Vite)
+Smoke: open https://basilisk-ja22.onrender.com/api/health → `{"status":"ok"}`
 
-We recommend **Vercel**, **Netlify**, or **Cloudflare Pages** for static site hosting.
+### 2. Redeploy frontend (Vercel)
 
-### Steps:
-1. Push `basilisk-frontend` to a GitHub repository.
-2. Link the repository to Vercel/Netlify.
-3. Configure the build command: `npm run build`
-4. Configure the output directory: `dist`
-5. Set the environment variables in the dashboard:
-   - `VITE_BACKEND_URL=https://api.basilisk.app` (Whatever domain the backend generated)
-6. Deploy!
+Important: the app entry is now `src/main.tsx` (React dashboard), not the Vite starter template.
 
-## 3. Updating the CLI (Production Configuration)
+1. Set env var (Production):
+   - `VITE_BACKEND_URL=https://basilisk-ja22.onrender.com`
+2. Build command: `npm run build`
+3. Output: `dist`
+4. Redeploy so Auth + Dashboard pick up the real API key flow.
 
-Once both the backend and frontend are live, you MUST update the hardcoded local URLs in the Basilisk CLI:
+### 3. CLI (already pointed at prod)
 
-1. Open `basilisk/reporter.py`
-2. Change: `BACKEND_URL = "http://localhost:8000"` to your real backend URL.
-3. Open `basilisk/auth.py`
-4. Change: `BACKEND_URL` to your real backend URL.
-5. Change: `FRONTEND_URL` to your real frontend URL.
-6. Open `basilisk/cli.py`
-7. Change: `DASHBOARD_URL = "http://localhost:3000"` to your real frontend URL.
-8. Re-install the CLI (`pip install -e .` or publish to PyPI).
+`basilisk/auth.py`, `reporter.py`, and `cli.py` use the Render/Vercel URLs.
+Reinstall locally after pull:
 
-Done! Your full platform is now live.
+```bash
+pip install -e .
+```
+
+### 4. End-to-end check
+
+```bash
+basilisk auth
+# Complete code + email on https://basilisk-livid.vercel.app/auth
+basilisk scan https://example.com --no-llm
+# Open dashboard → see the run → open scan detail
+```
+
+Note: Render free tier may cold-start (~30–60s). CLI auth poll timeout is 180s.
