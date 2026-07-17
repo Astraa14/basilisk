@@ -41,8 +41,13 @@ const AuthPage = () => {
     <div className="flex flex-col items-center justify-center p-6" style={{ minHeight: '100vh' }}>
       <div className="card p-6" style={{ maxWidth: '400px', width: '100%' }}>
         <div className="flex flex-col items-center mb-6">
-          <Shield size={48} style={{ color: 'var(--accent)', marginBottom: '1rem' }} />
-          <h1 className="text-xl text-bold">Device Authorization</h1>
+          <Shield size={48} style={{ color: 'var(--critical)', marginBottom: '1rem', marginTop: '1rem' }} />
+          <pre className="text-bold" style={{ color: 'var(--critical)', fontSize: '0.65rem', lineHeight: '1.2', textAlign: 'center', marginBottom: '1rem' }}>{`_|_|_|      _|_|      _|_|_|  _|_|_|  _|        _|_|_|    _|_|_|  _|    _|
+_|    _|  _|    _|  _|          _|    _|          _|    _|        _|  _|
+_|_|_|    _|_|_|_|    _|_|      _|    _|          _|      _|_|    _|_|  
+_|    _|  _|    _|        _|    _|    _|          _|          _|  _|  _|
+_|_|_|    _|    _|  _|_|_|    _|_|_|  _|_|_|_|  _|_|_|  _|_|_|    _|    _|`}</pre>
+          <h1 className="text-xl text-bold" style={{ color: 'var(--text-primary)' }}>Terminal Authentication</h1>
           <p className="text-secondary text-sm mt-4 text-center">
             Enter the code shown in your terminal after running <code>basilisk auth</code>.
           </p>
