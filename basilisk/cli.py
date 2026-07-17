@@ -6,6 +6,7 @@ import logging
 import sys
 
 import typer
+import pyfiglet
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -71,16 +72,22 @@ def _resolve_llm(
     return False, api_key
 
 
+def _draw_basilisk_logo() -> Text:
+    art = pyfiglet.figlet_format("BASILISK", font="block")
+    return Text(art, style="bold green", justify="center")
+
 def _banner(url: str, mode: str = "static") -> None:
     if mode == "llm":
         pipeline = "Generator(LLM) -> Target -> Judge(LLM)"
     else:
         pipeline = "Static templates -> Target -> Heuristic Judge"
+    console.print(_draw_basilisk_logo())
     console.print(
         Panel(
             Text.from_markup(
-                f"[bold]BASILISK[/bold]  |  scanning [cyan]{url}[/cyan]\n"
-                f"[dim]recon -> {pipeline}[/dim]"
+                f"scanning [cyan]{url}[/cyan]\n"
+                f"[dim]recon -> {pipeline}[/dim]",
+                justify="center",
             ),
             border_style="green",
             padding=(1, 2),
@@ -294,11 +301,13 @@ def login_scan(
 @app.command("auth")
 def auth_login() -> None:
     """Log in to Basilisk dashboard (opens browser for authentication)."""
+    console.print(_draw_basilisk_logo())
     console.print(
         Panel(
             Text.from_markup(
-                "[bold]BASILISK[/bold]  |  Dashboard Authentication\n"
-                "[dim]This will open your browser to complete sign-in.[/dim]"
+                "Dashboard Authentication\n"
+                "[dim]This will open your browser to complete sign-in.[/dim]",
+                justify="center",
             ),
             border_style="cyan",
             padding=(1, 2),
