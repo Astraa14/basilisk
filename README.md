@@ -50,6 +50,32 @@ Create `.env` from `.env.example` (never commit real keys).
 
 Exit code `1` when high-severity issues are found; `2` on LLM config/API errors.
 
+## SaaS Dashboard
+
+Basilisk can automatically upload scan results to a central web dashboard.
+
+```bash
+# 1. Authenticate once (opens browser)
+basilisk auth
+
+# 2. Run scans as normal — results auto-upload
+basilisk scan https://example.com
+
+# 3. View results at http://localhost:3000/dashboard
+# 4. Log out
+basilisk logout
+```
+
+| Step | What happens |
+|------|-------------|
+| `basilisk auth` | Browser opens to auth page. Enter the 6-char code + email. API key saved to `~/.basilisk/config.json`. |
+| `basilisk scan` | Scan runs locally, results printed, then auto-uploaded. A link to the dashboard is printed. |
+| `basilisk logout` | Removes `~/.basilisk/config.json` (local key only — does not delete scan history). |
+
+Dashboard URL: `http://localhost:3000` (update to production URL after deploying).
+
+---
+
 ## Architecture
 
 ```

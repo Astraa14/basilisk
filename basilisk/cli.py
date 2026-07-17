@@ -14,6 +14,15 @@ from rich.text import Text
 
 from basilisk.core import Basilisk
 from basilisk.llm import LLMError, load_llm_env, llm_configured
+from basilisk import auth as _auth_module
+from basilisk.config import (
+    clear_config,
+    config_exists,
+    load_backend_api_key,
+    load_backend_username,
+    save_backend_api_key,
+)
+from basilisk.reporter import send_report_to_backend
 
 logging.getLogger("basilisk").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -40,6 +49,9 @@ SEVERITY_STYLE = {
     "Low": "cyan",
     "Info": "dim",
 }
+
+# Update this URL after production deployment (Task 4.5)
+DASHBOARD_URL = "http://localhost:3000"
 
 
 def _resolve_llm(
@@ -133,6 +145,24 @@ def _print_summary(report: dict) -> None:
     )
 
 
+def _try_upload(report: dict) -> None:
+    """Upload the scan report to the dashboard if an API key is configured."""
+    api_key = load_backend_api_key()
+    if not api_key:
+        console.print(
+            "[dim]Tip: Run [bold]basilisk auth[/bold] to save scans to your dashboard.[/dim]"
+        )
+        return
+    with console.status("[dim]Uploading to dashboard...[/dim]", spinner="dots"):
+        scan_id = send_report_to_backend(report, api_key)
+    if scan_id:
+        console.print(
+            f"[green]\u2713[/green] View at: [cyan]{DASHBOARD_URL}/scans/{scan_id}[/cyan]"
+        )
+    else:
+        console.print("[dim]Upload skipped \u2014 results saved locally only.[/dim]")
+
+
 @app.command()
 def scan(
     url: str = typer.Argument(..., help="Target base URL (e.g. https://example.com)"),
@@ -195,6 +225,7 @@ def scan(
     console.print()
     _print_findings(report.get("findings", []))
     _print_summary(report)
+    _try_upload(report)
 
     if report.get("vulnerable"):
         raise typer.Exit(code=1)
@@ -254,9 +285,81 @@ def login_scan(
             border_style="red" if report.get("vulnerable") else "green",
         )
     )
+    _try_upload(report)
 
     if report.get("vulnerable"):
         raise typer.Exit(code=1)
+
+
+@app.command("auth")
+def auth_login() -> None:
+    """Log in to Basilisk dashboard (opens browser for authentication)."""
+    console.print(
+        Panel(
+            Text.from_markup(
+                "[bold]BASILISK[/bold]  |  Dashboard Authentication\n"
+                "[dim]This will open your browser to complete sign-in.[/dim]"
+            ),
+            border_style="cyan",
+            padding=(1, 2),
+        )
+    )
+
+    try:
+        data = _auth_module.request_device_code()
+    except RuntimeError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=2)
+
+    user_code: str = data.get("user_code", "")
+    verification_uri: str = data.get("verification_uri", "")
+    device_code: str = data.get("device_code", "")
+
+    console.print()
+    console.print(f"  [dim]Open this URL in your browser:[/dim]")
+    console.print(f"  [bold cyan]{verification_uri}[/bold cyan]")
+    console.print()
+    console.print(f"  [dim]Your one-time code:[/dim]")
+    console.print(f"  [bold white on blue]  {user_code}  [/bold white on blue]")
+    console.print()
+
+    _auth_module.open_auth_browser(verification_uri)
+
+    with Progress(
+        SpinnerColumn(style="cyan"),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        progress.add_task("Waiting for browser confirmation...", total=None)
+        result = _auth_module.poll_for_backend_key(device_code)
+
+    if not result or result[0] is None:
+        console.print("[bold red]Authentication timed out.[/bold red] Please try again.")
+        raise typer.Exit(code=2)
+
+    key, username = result
+    save_backend_api_key(key, username or "")
+
+    console.print(
+        f"[green]\u2713[/green] Logged in"
+        + (f" as [bold]{username}[/bold]" if username else "")
+    )
+    console.print(
+        f"[dim]Next: [bold]basilisk scan https://example.com[/bold][/dim]"
+    )
+
+
+@app.command("logout")
+def logout() -> None:
+    """Remove saved API key and log out from the dashboard."""
+    if config_exists():
+        username = load_backend_username()
+        clear_config()
+        msg = f"Logged out" + (f" ({username})" if username else "")
+        console.print(f"[green]\u2713[/green] {msg}")
+    else:
+        console.print("[dim]Not logged in — nothing to do.[/dim]")
 
 
 def main() -> None:
