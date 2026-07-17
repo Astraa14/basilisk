@@ -1,6 +1,6 @@
 # Basilisk
 
-Installable CLI vulnerability scanner for **web apps**.
+Installable CLI vulnerability scanner for **ai made/ai assisted web apps**.
 
 > **Use only on systems you own or have explicit permission to test.** Unauthorized scanning is illegal.
 
