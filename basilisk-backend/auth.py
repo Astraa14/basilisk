@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
-FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
+FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-scan.vercel.app")
 EXP_MINUTES = 10
 
 
