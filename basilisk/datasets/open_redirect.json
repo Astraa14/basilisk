@@ -1,0 +1,16 @@
+[
+  "//attacker.com",
+  "//evil.com",
+  "https://attacker.com",
+  "http://evil.com",
+  "////attacker.com",
+  "https://attacker.com/",
+  "//attacker.com/path",
+  "/\\attacker.com",
+  "/\\/attacker.com",
+  "http://attacker.com@target.com",
+  "https://attacker.com%40target.com",
+  "javascript:alert(1)",
+  "data:text/html,<script>alert(1)</script>",
+  "vbscript:msgbox(1)"
+]

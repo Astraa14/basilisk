@@ -1,0 +1,17 @@
+[
+  "../../../etc/passwd",
+  "../../../etc/shadow",
+  "../../../Windows/System32/drivers/etc/hosts",
+  "../../../windows/win.ini",
+  "..\\..\\..\\Windows\\System32\\drivers\\etc\\hosts",
+  "..\\..\\..\\windows\\win.ini",
+  "../../../../etc/passwd%00",
+  "../../../../etc/passwd%00.png",
+  "....//....//....//etc/passwd",
+  "..;/..;/..;/etc/passwd",
+  "%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+  "%252e%252e%252fetc%252fpasswd",
+  "/etc/passwd",
+  "file:///etc/passwd",
+  "file:///c:/windows/win.ini"
+]

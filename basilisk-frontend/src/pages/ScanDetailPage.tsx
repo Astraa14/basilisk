@@ -1,15 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { getScanDetail } from '../services/api';
 import { loadApiKeyFromStorage } from '../services/auth';
 import { Scan } from '../types';
 
+const SEVERITIES = ['Critical', 'High', 'Medium', 'Low', 'Info'] as const;
+
 const ScanDetailPage = () => {
   const { id } = useParams();
   const [scan, setScan] = useState<Scan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [severityFilter, setSeverityFilter] = useState<string>('');
 
   useEffect(() => {
     const apiKey = loadApiKeyFromStorage();
@@ -19,14 +22,21 @@ const ScanDetailPage = () => {
       setLoading(false);
       return;
     }
-
     getScanDetail(scanId, apiKey)
       .then(setScan)
-      .catch((err) => {
-        setError(err.response?.data?.detail || 'Failed to load scan detail.');
-      })
+      .catch((err) => { setError(err.response?.data?.detail || 'Failed to load scan detail.'); })
       .finally(() => setLoading(false));
   }, [id]);
+
+  const findings = useMemo(() => {
+    if (!scan?.findings) return [];
+    let filtered = [...scan.findings];
+    if (severityFilter) {
+      filtered = filtered.filter((f) => f.severity === severityFilter);
+    }
+    const order: Record<string, number> = { Critical: 0, High: 1, Medium: 2, Low: 3, Info: 4 };
+    return filtered.sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+  }, [scan, severityFilter]);
 
   if (loading) {
     return (
@@ -42,14 +52,10 @@ const ScanDetailPage = () => {
         <Link to="/dashboard" className="flex items-center gap-2 text-secondary text-sm mb-6">
           <ArrowLeft size={16} /> Back to dashboard
         </Link>
-        <div className="card p-6" style={{ color: 'var(--critical)' }}>
-          {error || 'Scan not found'}
-        </div>
+        <div className="card p-6" style={{ color: 'var(--critical)' }}>{error || 'Scan not found'}</div>
       </div>
     );
   }
-
-  const findings = scan.findings || [];
 
   return (
     <div className="container py-4 mt-8">
@@ -60,25 +66,12 @@ const ScanDetailPage = () => {
       <div className="flex items-center justify-between mb-6" style={{ gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 className="text-xl text-bold">Scan report</h1>
-          <p className="text-secondary text-sm mt-4" style={{ wordBreak: 'break-all' }}>
-            {scan.target_url}
-          </p>
+          <p className="text-secondary text-sm mt-4" style={{ wordBreak: 'break-all' }}>{scan.target_url}</p>
         </div>
-        {scan.vulnerable ? (
-          <span className="badge badge-high">Vulnerable</span>
-        ) : (
-          <span className="badge badge-safe">Clean</span>
-        )}
+        {scan.vulnerable ? <span className="badge badge-high">Vulnerable</span> : <span className="badge badge-safe">Clean</span>}
       </div>
 
-      <div
-        className="mb-8"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-          gap: '1rem',
-        }}
-      >
+      <div className="mb-8" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '1rem' }}>
         <div className="card p-6">
           <div className="text-secondary text-sm mb-4">Pages</div>
           <div className="text-xl text-bold">{scan.pages_scanned}</div>
@@ -101,7 +94,24 @@ const ScanDetailPage = () => {
         </div>
       </div>
 
-      <h2 className="text-lg text-bold mb-4">Findings</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg text-bold">Findings</h2>
+        <div className="flex items-center gap-2">
+          <label className="text-secondary text-sm">Filter:</label>
+          <select
+            className="input"
+            style={{ width: 'auto', padding: '0.25rem 0.5rem' }}
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value)}
+          >
+            <option value="">All Severities</option>
+            {SEVERITIES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {findings.length === 0 ? (
         <div className="card p-6 text-secondary text-sm">No findings recorded for this run.</div>
       ) : (
@@ -113,6 +123,8 @@ const ScanDetailPage = () => {
                 <th style={{ padding: '0.75rem 1rem' }}>Issue</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Target</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Description</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Type</th>
+                <th style={{ padding: '0.75rem 1rem' }}>Payload</th>
               </tr>
             </thead>
             <tbody>
@@ -122,11 +134,11 @@ const ScanDetailPage = () => {
                     <span className={`badge badge-${f.severity.toLowerCase()}`}>{f.severity}</span>
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>{f.vulnerability}</td>
-                  <td style={{ padding: '0.75rem 1rem', maxWidth: 220, wordBreak: 'break-all' }}>
-                    {f.target}
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>
-                    {f.description}
+                  <td style={{ padding: '0.75rem 1rem', maxWidth: 220, wordBreak: 'break-all' }}>{f.target}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: 'var(--text-secondary)' }}>{f.description}</td>
+                  <td style={{ padding: '0.75rem 1rem' }}>{f.attack_type || '-'}</td>
+                  <td style={{ padding: '0.75rem 1rem', maxWidth: 200, wordBreak: 'break-all', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                    {f.payload ? <code>{f.payload.slice(0, 60)}{f.payload.length > 60 ? '...' : ''}</code> : '-'}
                   </td>
                 </tr>
               ))}

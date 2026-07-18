@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from basilisk.generator import PayloadGenerator
+from basilisk.generator import PayloadGenerator, SUPPORTED_KINDS
 from basilisk.judge import HybridJudge
 from basilisk.llm import LLMClient
 from basilisk.models import Finding
@@ -15,7 +15,7 @@ ProgressCb = Callable[[str], None]
 
 
 class AttackEngine:
-    """Run static (+ optional LLM) strategies against discovered forms / login."""
+    """Run static (+ optional LLM) strategies against discovered forms / login / URL params."""
 
     def __init__(
         self,
@@ -37,11 +37,7 @@ class AttackEngine:
         )
         self.judge = HybridJudge(use_llm=use_llm, llm_client=client)
 
-    def fuzz_forms(
-        self,
-        forms: list[dict],
-        on_progress: ProgressCb | None = None,
-    ) -> list[Finding]:
+    def fuzz_forms(self, forms: list[dict], on_progress: ProgressCb | None = None) -> list[Finding]:
         findings: list[Finding] = []
         seen: set[str] = set()
 
@@ -51,34 +47,59 @@ class AttackEngine:
                 continue
             seen.add(key)
             if on_progress:
-                on_progress(f"Fuzzing {form.get('action_url')}")
+                on_progress(f"Fuzzing form at {form.get('action_url')}")
             findings.extend(self._fuzz_one_form(form))
 
+        return findings
+
+    def fuzz_url_params(
+        self,
+        urls: list[str],
+        on_progress: ProgressCb | None = None,
+    ) -> list[Finding]:
+        findings: list[Finding] = []
+        for url in urls:
+            if "?" not in url:
+                continue
+            if on_progress:
+                on_progress(f"Fuzzing URL params: {url}")
+            findings.extend(self._fuzz_url(url))
         return findings
 
     def _fuzz_one_form(self, form: dict) -> list[Finding]:
         if not form.get("inputs"):
             return []
-
         findings: list[Finding] = []
-
-        for payload in self.generator.generate("sqli", form):
-            response = self.target.submit_form(form, payload)
-            if not response:
+        for kind in ["sqli", "xss", "cmdi", "ssti", "nosqli"]:
+            if kind not in SUPPORTED_KINDS:
                 continue
-            hit = self.judge.judge("sqli", payload, response)
-            if hit:
-                findings.append(hit)
-                break
+            for payload in self.generator.generate(kind, form):
+                response = self.target.submit_form(form, payload)
+                if not response:
+                    continue
+                hit = self.judge.judge(kind, payload, response)
+                if hit:
+                    findings.append(hit)
+                    break
+        return findings
 
-        for payload in self.generator.generate("xss", form):
-            response = self.target.submit_form(form, payload)
-            if not response:
+    def _fuzz_url(self, url: str) -> list[Finding]:
+        findings: list[Finding] = []
+        params_to_test = self._extract_param_names(url)
+        for kind in ["sqli", "xss", "cmdi", "ssti", "ssrf", "open_redirect", "lfi", "path_traversal", "nosqli"]:
+            if kind not in SUPPORTED_KINDS:
                 continue
-            hit = self.judge.judge("xss", payload, response)
-            if hit:
-                findings.append(hit)
-
+            for payload in self.generator.generate(kind, None):
+                for param in params_to_test:
+                    response = self.target.submit_url_param(url, param, payload)
+                    if not response:
+                        continue
+                    hit = self.judge.judge(kind, payload, response)
+                    if hit:
+                        findings.append(hit)
+                        break
+                if findings and findings[-1].attack_type == kind:
+                    break
         return findings
 
     def probe_login(
@@ -110,5 +131,9 @@ class AttackEngine:
                         "reason": hit.description,
                     }
                 )
-
         return findings, exploits
+
+    def _extract_param_names(self, url: str) -> list[str]:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        return list(parse_qs(parsed.query).keys()) or ["q", "id", "page", "file", "path", "url", "redirect"]

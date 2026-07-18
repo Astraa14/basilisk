@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
+from datetime import datetime
+from pathlib import Path
 
 import typer
 import pyfiglet
@@ -12,6 +15,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
+from rich.console import Group
 
 from basilisk.core import Basilisk
 from basilisk.llm import LLMError, load_llm_env, llm_configured
@@ -35,6 +39,13 @@ if hasattr(sys.stdout, "reconfigure"):
     except Exception:
         pass
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from basilisk import __version__
+        console.print(f"Basilisk v{__version__}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     name="basilisk",
     help="Basilisk - web vulnerability scanner (recon + attack engine + judge).",
@@ -51,7 +62,6 @@ SEVERITY_STYLE = {
     "Info": "dim",
 }
 
-# Update this URL after production deployment (Task 4.5)
 DASHBOARD_URL = "https://basilisk-scan.vercel.app"
 
 
@@ -60,19 +70,15 @@ def _resolve_llm(
     no_llm: bool,
     api_key: str | None,
 ) -> tuple[bool, str | None]:
-    """LLM is on when a key exists, unless --no-llm. --llm forces it on."""
     load_llm_env()
     if no_llm:
         return False, api_key
     if force_llm:
         return True, api_key
-    # Auto-enable full Generator+Judge pipeline when a key is available
     if llm_configured(api_key):
         return True, api_key
     return False, api_key
 
-
-from rich.console import Group
 
 def _draw_basilisk_logo() -> Group:
     art = pyfiglet.figlet_format("BASILISK", font="block")
@@ -80,6 +86,7 @@ def _draw_basilisk_logo() -> Group:
     subtitle = Text("Advanced Web Vulnerability Scanner & Reconnaissance Engine", style="dim italic", justify="center")
     spacer = Text("", justify="center")
     return Group(logo, subtitle, spacer)
+
 
 def _banner(url: str, mode: str = "static") -> None:
     if mode == "llm":
@@ -133,7 +140,12 @@ def _print_findings(findings: list[dict]) -> None:
     console.print(table)
     console.print()
     for idx, issue in enumerate(ranked, 1):
-        console.print(f"  [dim]{idx}.[/dim] {issue.get('description', '')}")
+        desc = issue.get('description', '')
+        payload = issue.get('payload', '')
+        line = f"  [dim]{idx}.[/dim] {desc}"
+        if payload:
+            line += f"\n       [dim]payload:[/dim] [italic]{payload[:80]}[/italic]"
+        console.print(line)
 
 
 def _print_summary(report: dict) -> None:
@@ -158,7 +170,6 @@ def _print_summary(report: dict) -> None:
 
 
 def _try_upload(report: dict) -> None:
-    """Upload the scan report to the dashboard if an API key is configured."""
     api_key = load_backend_api_key()
     if not api_key:
         console.print(
@@ -175,31 +186,104 @@ def _try_upload(report: dict) -> None:
         console.print("[dim]Upload skipped \u2014 results saved locally only.[/dim]")
 
 
+def _export_json(report: dict, path: Path) -> None:
+    path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    console.print(f"[green]\u2713[/green] Results saved to [cyan]{path}[/cyan]")
+
+
+def _export_html(report: dict, path: Path) -> None:
+    findings = report.get("findings", [])
+    rows = ""
+    order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Info": 4}
+    ranked = sorted(findings, key=lambda f: order.get(f.get("severity", "Info"), 9))
+    for f in ranked:
+        sev = f.get("severity", "Info")
+        color = {"Critical": "#dc2626", "High": "#ef4444", "Medium": "#eab308", "Low": "#06b6d4", "Info": "#6b7280"}.get(sev, "#6b7280")
+        rows += f"""
+        <tr>
+          <td><span style="color:{color};font-weight:bold">{sev}</span></td>
+          <td>{f.get('vulnerability', '')}</td>
+          <td style="word-break:break-all">{f.get('target', '')}</td>
+          <td>{f.get('description', '')}</td>
+        </tr>"""
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Basilisk Scan Report</title>
+<style>
+body {{ font-family:-apple-system,sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:2rem }}
+h1 {{ color:#22c55e }} .meta {{ color:#94a3b8; margin:1rem 0 }}
+table {{ width:100%; border-collapse:collapse; margin-top:1rem }}
+th,td {{ padding:.75rem 1rem; text-align:left; border-bottom:1px solid #334155 }}
+th {{ color:#94a3b8; font-size:.875rem }}
+</style></head>
+<body>
+<h1>Basilisk Scan Report</h1>
+<div class="meta">
+  <strong>Target:</strong> {report.get('target', '')}<br>
+  <strong>Mode:</strong> {report.get('mode', 'static')} |
+  <strong>Pages:</strong> {report.get('pages_scanned', 0)} |
+  <strong>Forms:</strong> {report.get('forms_found', 0)} |
+  <strong>Findings:</strong> {len(findings)} |
+  <strong>Vulnerable:</strong> {report.get('vulnerable', False)}
+</div>
+<table><thead><tr><th>Severity</th><th>Issue</th><th>Target</th><th>Description</th></tr></thead>
+<tbody>{rows}</tbody></table>
+<p style="color:#64748b;margin-top:2rem;font-size:.875rem">Generated by Basilisk on {datetime.utcnow().isoformat()}</p>
+</body></html>"""
+    path.write_text(html, encoding="utf-8")
+    console.print(f"[green]\u2713[/green] HTML report saved to [cyan]{path}[/cyan]")
+
+
+def _parse_cookie(value: str | None) -> dict | None:
+    if not value:
+        return None
+    cookies: dict[str, str] = {}
+    for part in value.split(";"):
+        part = part.strip()
+        if "=" in part:
+            k, v = part.split("=", 1)
+            cookies[k.strip()] = v.strip()
+    return cookies or None
+
+
+def _parse_headers(values: list[str] | None) -> dict | None:
+    if not values:
+        return None
+    headers: dict[str, str] = {}
+    for item in values:
+        if ":" in item:
+            k, v = item.split(":", 1)
+            headers[k.strip()] = v.strip()
+    return headers or None
+
+
 @app.command()
 def scan(
     url: str = typer.Argument(..., help="Target base URL (e.g. https://example.com)"),
     max_pages: int = typer.Option(15, "--max-pages", "-n", help="Crawl page limit"),
-    no_active: bool = typer.Option(
-        False, "--no-active", help="Skip active form fuzzing (passive only)"
-    ),
+    no_active: bool = typer.Option(False, "--no-active", help="Skip active form fuzzing (passive only)"),
+    no_url_fuzz: bool = typer.Option(False, "--no-url-fuzz", help="Skip URL parameter fuzzing"),
     timeout: float = typer.Option(5.0, "--timeout", "-t", help="Request timeout seconds"),
-    use_llm: bool = typer.Option(
-        False, "--llm", help="Force LLM Generator + Judge on"
-    ),
-    no_llm: bool = typer.Option(
-        False, "--no-llm", help="Force static-only mode (ignore API key)"
-    ),
-    api_key: str | None = typer.Option(
-        None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"
-    ),
-    dataset: str | None = typer.Option(
-        None, "--dataset", "-d", help="Optional custom JSON payload dataset path"
-    ),
+    delay: float = typer.Option(0.0, "--delay", "-w", help="Delay seconds between requests"),
+    retries: int = typer.Option(1, "--retries", "-r", help="Max HTTP retries per request"),
+    use_llm: bool = typer.Option(False, "--llm", help="Force LLM Generator + Judge on"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Force static-only mode (ignore API key)"),
+    api_key: str | None = typer.Option(None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"),
+    dataset: str | None = typer.Option(None, "--dataset", "-d", help="Optional custom JSON payload dataset path"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Save results to file (.json or .html)"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
+    cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
+    header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
 ):
     """Full site scan: recon, passive audit, then Attack Engine fuzzing."""
     enabled, key = _resolve_llm(use_llm, no_llm, api_key)
     mode = "llm" if enabled else "static"
-    _banner(url, mode=mode)
+
+    extra_headers = _parse_headers(header) if header else None
+    cookies = _parse_cookie(cookie) if cookie else None
+
+    if not json_output:
+        _banner(url, mode=mode)
 
     try:
         scanner = Basilisk(
@@ -208,6 +292,10 @@ def scan(
             use_llm=enabled,
             custom_dataset=dataset,
             api_key=key,
+            delay=delay,
+            max_retries=retries,
+            extra_headers=extra_headers,
+            cookies=cookies,
         )
     except LLMError as exc:
         console.print(f"[bold red]LLM config error:[/bold red] {exc}")
@@ -228,15 +316,28 @@ def scan(
             report = scanner.scan(
                 max_pages=max_pages,
                 active=not no_active,
+                fuzz_url_params=not no_url_fuzz,
                 on_progress=on_progress,
             )
         except LLMError as exc:
             console.print(f"[bold red]LLM error:[/bold red] {exc}")
             raise typer.Exit(code=2) from exc
 
+    if json_output:
+        console.print_json(json.dumps(report, default=str))
+        return
+
     console.print()
     _print_findings(report.get("findings", []))
     _print_summary(report)
+
+    if output:
+        out_path = Path(output)
+        if out_path.suffix == ".html":
+            _export_html(report, out_path)
+        else:
+            _export_json(report, out_path)
+
     _try_upload(report)
 
     if report.get("vulnerable"):
@@ -248,23 +349,26 @@ def login_scan(
     url: str = typer.Argument(..., help="Target base URL"),
     endpoint: str = typer.Option("/login", "--endpoint", "-e", help="Login path"),
     timeout: float = typer.Option(5.0, "--timeout", "-t", help="Request timeout seconds"),
-    use_llm: bool = typer.Option(
-        False, "--llm", help="Force LLM Generator + Judge on"
-    ),
-    no_llm: bool = typer.Option(
-        False, "--no-llm", help="Force static-only mode (ignore API key)"
-    ),
-    api_key: str | None = typer.Option(
-        None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"
-    ),
-    dataset: str | None = typer.Option(
-        None, "--dataset", "-d", help="Optional custom JSON payload dataset path"
-    ),
+    delay: float = typer.Option(0.0, "--delay", "-w", help="Delay seconds between requests"),
+    retries: int = typer.Option(1, "--retries", "-r", help="Max HTTP retries per request"),
+    use_llm: bool = typer.Option(False, "--llm", help="Force LLM Generator + Judge on"),
+    no_llm: bool = typer.Option(False, "--no-llm", help="Force static-only mode (ignore API key)"),
+    api_key: str | None = typer.Option(None, "--api-key", help="LLM API key (prefer .env: BASILISK_LLM_API_KEY)"),
+    dataset: str | None = typer.Option(None, "--dataset", "-d", help="Optional custom JSON payload dataset path"),
+    output: str | None = typer.Option(None, "--output", "-o", help="Save results to file (.json or .html)"),
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
+    cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
+    header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
 ):
     """Probe a login endpoint for SQL injection via the Attack Engine."""
     enabled, key = _resolve_llm(use_llm, no_llm, api_key)
     mode = "llm" if enabled else "static"
-    _banner(f"{url}{endpoint}", mode=mode)
+
+    extra_headers = _parse_headers(header) if header else None
+    cookies = _parse_cookie(cookie) if cookie else None
+
+    if not json_output:
+        _banner(f"{url}{endpoint}", mode=mode)
 
     try:
         scanner = Basilisk(
@@ -273,6 +377,10 @@ def login_scan(
             use_llm=enabled,
             custom_dataset=dataset,
             api_key=key,
+            delay=delay,
+            max_retries=retries,
+            extra_headers=extra_headers,
+            cookies=cookies,
         )
     except LLMError as exc:
         console.print(f"[bold red]LLM config error:[/bold red] {exc}")
@@ -286,6 +394,11 @@ def login_scan(
             raise typer.Exit(code=2) from exc
 
     findings = report.get("findings", [])
+
+    if json_output:
+        console.print_json(json.dumps(report, default=str))
+        return
+
     console.print()
     _print_findings(findings)
     console.print(
@@ -297,6 +410,14 @@ def login_scan(
             border_style="red" if report.get("vulnerable") else "green",
         )
     )
+
+    if output:
+        out_path = Path(output)
+        if out_path.suffix == ".html":
+            _export_html(report, out_path)
+        else:
+            _export_json(report, out_path)
+
     _try_upload(report)
 
     if report.get("vulnerable"):
@@ -378,6 +499,8 @@ def logout() -> None:
 
 def main() -> None:
     load_llm_env()
+    if "--version" in sys.argv or "-V" in sys.argv:
+        _version_callback(True)
     app()
 
 

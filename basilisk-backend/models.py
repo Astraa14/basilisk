@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -44,6 +44,9 @@ class Scan(Base):
     findings = relationship(
         "Finding", back_populates="scan", cascade="all, delete-orphan"
     )
+    exploits = relationship(
+        "Exploit", back_populates="scan", cascade="all, delete-orphan"
+    )
 
 
 class Finding(Base):
@@ -55,14 +58,27 @@ class Finding(Base):
     severity = Column(String(32), nullable=False)
     description = Column(String(2048), nullable=False)
     target = Column(String(2048), nullable=False)
+    attack_type = Column(String(64), default="", nullable=False)
+    payload = Column(Text, default="", nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     scan = relationship("Scan", back_populates="findings")
 
 
-class DeviceCode(Base):
-    """Persisted device-code entries (survives Render restarts / multi-worker)."""
+class Exploit(Base):
+    __tablename__ = "exploits"
 
+    id = Column(Integer, primary_key=True, index=True)
+    scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False)
+    payload = Column(Text, nullable=False)
+    status_code = Column(Integer, nullable=True)
+    reason = Column(String(2048), default="", nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    scan = relationship("Scan", back_populates="exploits")
+
+
+class DeviceCode(Base):
     __tablename__ = "device_codes"
 
     id = Column(Integer, primary_key=True, index=True)
