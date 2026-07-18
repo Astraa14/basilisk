@@ -26,13 +26,23 @@ class Basilisk:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        delay: float = 0,
+        max_retries: int = 1,
+        extra_headers: dict | None = None,
+        cookies: dict | None = None,
     ):
         self.target_url = target_url.rstrip("/")
         if not self.target_url.startswith(("http://", "https://")):
             self.target_url = "https://" + self.target_url
         self.use_llm = use_llm
         self.custom_dataset = custom_dataset
-        self.target = WebTarget(timeout=timeout)
+        self.target = WebTarget(
+            timeout=timeout,
+            delay=delay,
+            max_retries=max_retries,
+            extra_headers=extra_headers,
+            cookies=cookies,
+        )
         self.recon = Recon(self.target)
         llm_client = (
             LLMClient(api_key=api_key, base_url=base_url, model=model) if use_llm else None
@@ -48,6 +58,7 @@ class Basilisk:
         self,
         max_pages: int = 15,
         active: bool = True,
+        fuzz_url_params: bool = True,
         on_progress: ProgressCb | None = None,
     ) -> dict:
         def note(msg: str) -> None:
@@ -61,12 +72,17 @@ class Basilisk:
         )
         findings = list(recon_result["findings"])
         forms = recon_result["forms"]
+        param_urls = recon_result.get("urls_with_params", [])
 
         if active and forms:
             note(f"Active fuzzing {len(forms)} form(s)...")
             findings.extend(self.engine.fuzz_forms(forms, on_progress=on_progress))
         elif active:
-            note("No forms discovered - skipping active fuzz")
+            note("No forms discovered - skipping form fuzzing")
+
+        if active and fuzz_url_params and param_urls:
+            note(f"Fuzzing {len(param_urls)} URL(s) with parameters...")
+            findings.extend(self.engine.fuzz_url_params(param_urls, on_progress=on_progress))
 
         report = ScanReport(
             target=self.target_url,

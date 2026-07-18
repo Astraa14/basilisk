@@ -46,3 +46,9 @@ credentials.json
 # Scan output
 reports/
 *.log
+
+# Database
+*.db
+
+# Node
+node_modules/

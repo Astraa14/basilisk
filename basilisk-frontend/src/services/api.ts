@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Scan } from '../types';
+import { Scan, ScanListResponse } from '../types';
 
 const BACKEND_URL = import.meta.env.PROD 
   ? 'https://basilisk-ja22.onrender.com' 
@@ -14,9 +14,13 @@ export const createApiClient = (apiKey: string) => {
   });
 };
 
-export const getScans = async (apiKey: string): Promise<Scan[]> => {
+export const getScans = async (
+  apiKey: string,
+  page: number = 1,
+  perPage: number = 20
+): Promise<ScanListResponse> => {
   const client = createApiClient(apiKey);
-  const response = await client.get('/api/scans');
+  const response = await client.get('/api/scans', { params: { page, per_page: perPage } });
   return response.data;
 };
 
@@ -24,4 +28,9 @@ export const getScanDetail = async (scanId: number, apiKey: string): Promise<Sca
   const client = createApiClient(apiKey);
   const response = await client.get(`/api/scans/${scanId}`);
   return response.data;
+};
+
+export const deleteScan = async (scanId: number, apiKey: string): Promise<void> => {
+  const client = createApiClient(apiKey);
+  await client.delete(`/api/scans/${scanId}`);
 };

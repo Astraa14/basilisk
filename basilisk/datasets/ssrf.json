@@ -1,0 +1,23 @@
+[
+  "http://127.0.0.1:80",
+  "http://127.0.0.1:443",
+  "http://127.0.0.1:22",
+  "http://127.0.0.1:3306",
+  "http://127.0.0.1:6379",
+  "http://127.0.0.1:27017",
+  "http://localhost:80",
+  "http://localhost:443",
+  "http://[::1]:80",
+  "http://0.0.0.0:80",
+  "http://0:80",
+  "http://127.1:80",
+  "http://2130706433:80",
+  "http://0x7f000001:80",
+  "file:///etc/passwd",
+  "file:///c:/windows/win.ini",
+  "http://169.254.169.254/latest/meta-data/",
+  "http://metadata.google.internal/",
+  "http://100.100.100.200/latest/meta-data/",
+  "dict://127.0.0.1:6379/info",
+  "gopher://127.0.0.1:6379/_INFO"
+]

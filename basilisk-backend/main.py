@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from functools import wraps
 
-from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi import Depends, FastAPI, HTTPException, Header, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func
 
 import auth
 import database
@@ -21,6 +25,31 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("basilisk.backend")
 
 FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
+
+# Simple in-memory rate limiter (per-IP, fixed window)
+RATE_LIMIT_STORE: dict[str, list[float]] = {}
+RATE_LIMIT_WINDOW = 60
+RATE_LIMIT_MAX = 60
+
+
+def rate_limit(window: int = RATE_LIMIT_WINDOW, max_requests: int = RATE_LIMIT_MAX):
+    def decorator(handler: Callable):
+        @wraps(handler)
+        async def wrapper(request: Request, *args, **kwargs):
+            ip = request.client.host if request.client else "unknown"
+            now = time.time()
+            timestamps = RATE_LIMIT_STORE.get(ip, [])
+            timestamps = [t for t in timestamps if now - t < window]
+            if len(timestamps) >= max_requests:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="Rate limit exceeded. Try again later.",
+                )
+            timestamps.append(now)
+            RATE_LIMIT_STORE[ip] = timestamps
+            return await handler(request, *args, **kwargs)
+        return wrapper
+    return decorator
 
 
 @asynccontextmanager
@@ -52,7 +81,6 @@ app.add_middleware(
 def get_current_user(
     authorization: str | None = Header(None), db: Session = Depends(get_db)
 ) -> models.User:
-    """Dependency: Extract API key from header and return User."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -171,26 +199,55 @@ def upload_scan(
             severity=finding_data.severity,
             description=finding_data.description,
             target=finding_data.target,
+            attack_type=finding_data.attack_type,
+            payload=finding_data.payload,
         )
         db.add(finding)
+
+    for exploit_data in payload.exploits_found:
+        exploit = models.Exploit(
+            scan_id=scan.id,
+            payload=exploit_data.payload,
+            status_code=exploit_data.status_code,
+            reason=exploit_data.reason,
+        )
+        db.add(exploit)
 
     db.commit()
     return {"scan_id": scan.id, "status": "created"}
 
 
-@app.get("/api/scans", response_model=list[schemas.ScanResponseSchema])
+@app.get("/api/scans", response_model=schemas.ScanListResponseSchema)
 def list_scans(
+    page: int = 1,
+    per_page: int = 20,
     user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    scans = (
+    per_page = min(max(per_page, 1), 100)
+    page = max(page, 1)
+
+    base_query = (
         db.query(models.Scan)
-        .options(joinedload(models.Scan.findings))
+        .options(joinedload(models.Scan.findings), joinedload(models.Scan.exploits))
         .filter(models.Scan.user_id == user.id)
+    )
+
+    total = base_query.count()
+    scans = (
+        base_query
         .order_by(models.Scan.created_at.desc())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
         .all()
     )
-    return scans
+
+    return {
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "scans": scans,
+    }
 
 
 @app.get("/api/scans/{scan_id}", response_model=schemas.ScanResponseSchema)
@@ -201,7 +258,7 @@ def get_scan(
 ):
     scan = (
         db.query(models.Scan)
-        .options(joinedload(models.Scan.findings))
+        .options(joinedload(models.Scan.findings), joinedload(models.Scan.exploits))
         .filter(models.Scan.id == scan_id, models.Scan.user_id == user.id)
         .first()
     )
@@ -213,6 +270,31 @@ def get_scan(
     return scan
 
 
+@app.delete("/api/scans/{scan_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_scan(
+    scan_id: int,
+    user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    scan = (
+        db.query(models.Scan)
+        .filter(models.Scan.id == scan_id, models.Scan.user_id == user.id)
+        .first()
+    )
+    if not scan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scan not found",
+        )
+    db.delete(scan)
+    db.commit()
+
+
 @app.get("/api/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    db_status = "ok"
+    try:
+        db.execute(func.now())
+    except Exception:
+        db_status = "error"
+    return {"status": "ok", "database": db_status}

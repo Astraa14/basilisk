@@ -3,6 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from enum import Enum
+
+
+class AttackType(str, Enum):
+    SQLI = "sqli"
+    XSS = "xss"
+    CMDI = "cmdi"
+    PATH_TRAVERSAL = "path_traversal"
+    SSTI = "ssti"
+    SSRF = "ssrf"
+    OPEN_REDIRECT = "open_redirect"
+    LFI = "lfi"
+    NOSQLI = "nosqli"
+    LOGIN = "login"
 
 
 @dataclass
@@ -11,9 +25,11 @@ class Finding:
     severity: str
     description: str
     target: str
+    attack_type: str = ""
+    payload: str = ""
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        return {k: v for k, v in asdict(self).items() if v}
 
 
 @dataclass

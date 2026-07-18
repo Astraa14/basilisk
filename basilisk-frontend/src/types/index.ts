@@ -5,6 +5,17 @@ export interface Finding {
   severity: 'Critical' | 'High' | 'Medium' | 'Low' | 'Info';
   description: string;
   target: string;
+  attack_type?: string;
+  payload?: string;
+  created_at: string;
+}
+
+export interface Exploit {
+  id: number;
+  scan_id: number;
+  payload: string;
+  status_code: number | null;
+  reason: string;
   created_at: string;
 }
 
@@ -19,6 +30,14 @@ export interface Scan {
   status: 'complete' | 'processing' | 'error';
   created_at: string;
   findings?: Finding[];
+  exploits?: Exploit[];
+}
+
+export interface ScanListResponse {
+  total: number;
+  page: number;
+  per_page: number;
+  scans: Scan[];
 }
 
 export interface User {
