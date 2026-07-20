@@ -5,12 +5,17 @@ from __future__ import annotations
 import os
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-scan.vercel.app")
 EXP_MINUTES = 10
+
+
+def _utcnow() -> datetime:
+    """Return naive UTC datetime (avoids deprecation warnings from utcnow)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def generate_api_key() -> str:
@@ -44,7 +49,7 @@ def generate_device_code(db: Session) -> dict:
     entry = DeviceCode(
         device_code=device_code,
         user_code=user_code,
-        expires_at=datetime.utcnow() + timedelta(minutes=EXP_MINUTES),
+        expires_at=_utcnow() + timedelta(minutes=EXP_MINUTES),
         verified=False,
         username="",
     )
@@ -77,7 +82,7 @@ def verify_device_code(
         .filter(DeviceCode.user_code == user_code)
         .first()
     )
-    if not entry or datetime.utcnow() > entry.expires_at:
+    if not entry or _utcnow() > entry.expires_at:
         return False
 
     entry.verified = True
@@ -104,7 +109,7 @@ def get_verified_token(db: Session, device_code: str) -> dict | None:
     )
     if not entry:
         raise KeyError("device_code_not_found")
-    if datetime.utcnow() > entry.expires_at:
+    if _utcnow() > entry.expires_at:
         db.delete(entry)
         db.commit()
         raise KeyError("device_code_expired")
@@ -127,7 +132,7 @@ def device_code_exists(db: Session, device_code: str) -> bool:
     )
     if not entry:
         return False
-    if datetime.utcnow() > entry.expires_at:
+    if _utcnow() > entry.expires_at:
         db.delete(entry)
         db.commit()
         return False
@@ -145,6 +150,6 @@ def cleanup_expired_codes(db: Session) -> None:
     """Remove all expired device code entries."""
     from models import DeviceCode
 
-    now = datetime.utcnow()
+    now = _utcnow()
     db.query(DeviceCode).filter(DeviceCode.expires_at < now).delete()
     db.commit()
