@@ -7,8 +7,9 @@ from pathlib import Path
 
 from basilisk.engine import AttackEngine
 from basilisk.llm import LLMClient
-from basilisk.models import ScanReport
+from basilisk.models import ScanConfig, ScanReport, Finding
 from basilisk.recon import Recon
+from basilisk.scoring import score_finding
 from basilisk.target import WebTarget
 
 ProgressCb = Callable[[str], None]
@@ -30,12 +31,18 @@ class Basilisk:
         max_retries: int = 1,
         extra_headers: dict | None = None,
         cookies: dict | None = None,
+        config: ScanConfig | None = None,
     ):
         self.target_url = target_url.rstrip("/")
         if not self.target_url.startswith(("http://", "https://")):
             self.target_url = "https://" + self.target_url
         self.use_llm = use_llm
         self.custom_dataset = custom_dataset
+        self.config = config or ScanConfig(
+            timeout=timeout,
+            delay=delay,
+            max_retries=max_retries,
+        )
         self.target = WebTarget(
             timeout=timeout,
             delay=delay,
@@ -52,6 +59,7 @@ class Basilisk:
             use_llm=use_llm,
             custom_dataset=custom_dataset,
             llm_client=llm_client,
+            config=self.config,
         )
 
     def scan(
@@ -59,15 +67,17 @@ class Basilisk:
         max_pages: int = 15,
         active: bool = True,
         fuzz_url_params: bool = True,
+        deep_scan: bool = False,
         on_progress: ProgressCb | None = None,
     ) -> dict:
         def note(msg: str) -> None:
             if on_progress:
                 on_progress(msg)
 
+        note(f"Starting recon on {self.target_url}")
         recon_result = self.recon.crawl(
             self.target_url,
-            max_pages=max_pages,
+            max_pages=max_pages if not deep_scan else max_pages * 3,
             on_progress=on_progress,
         )
         findings = list(recon_result["findings"])
@@ -76,21 +86,30 @@ class Basilisk:
 
         if active and forms:
             note(f"Active fuzzing {len(forms)} form(s)...")
-            findings.extend(self.engine.fuzz_forms(forms, on_progress=on_progress))
-        elif active:
-            note("No forms discovered - skipping form fuzzing")
+            f_findings = self.engine.fuzz_forms(forms, on_progress=on_progress)
+            findings.extend(f_findings)
 
         if active and fuzz_url_params and param_urls:
             note(f"Fuzzing {len(param_urls)} URL(s) with parameters...")
-            findings.extend(self.engine.fuzz_url_params(param_urls, on_progress=on_progress))
+            u_findings = self.engine.fuzz_url_params(param_urls, on_progress=on_progress)
+            findings.extend(u_findings)
+
+        # CVSS scoring
+        scored_findings: list[Finding] = []
+        for f in findings:
+            cvss, vector = score_finding(f.attack_type)
+            f.cvss_score = cvss
+            f.cvss_vector = vector
+            scored_findings.append(f)
 
         report = ScanReport(
             target=self.target_url,
             pages_scanned=recon_result["pages_scanned"],
             forms_found=len(forms),
-            findings=findings,
-            vulnerable=any(f.severity in ("High", "Critical") for f in findings),
+            findings=scored_findings,
+            vulnerable=any(f.severity in ("High", "Critical") for f in scored_findings),
             mode="llm" if self.use_llm else "static",
+            config=self.config,
         )
         return report.to_dict()
 
