@@ -52,3 +52,9 @@ reports/
 
 # Node
 node_modules/
+
+# Build plans / internal docs
+BASILISK_BUILD_PLAN.txt
+BASILISK_FULL_BUILD_PLAN.txt
+task.md
+DEPLOY.md
