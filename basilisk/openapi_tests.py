@@ -47,7 +47,7 @@ class OpenAPIEndpoint:
     method: str
     parameters: list[dict] = field(default_factory=list)
     request_body: dict | None = None
-    security: list[str] = field(default_factory=list)
+    security: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -107,6 +107,10 @@ class OpenAPITestGenerator:
 
     def _parse_spec(self, spec: dict, analysis: OpenAPIAnalysis) -> None:
         paths = spec.get("paths", {})
+        root_security = spec.get("security", [])
+        if not isinstance(root_security, list):
+            root_security = []
+
         for path, methods in paths.items():
             if not isinstance(methods, dict):
                 continue
@@ -120,12 +124,16 @@ class OpenAPITestGenerator:
                     params = [p for p in params if isinstance(p, dict)]
 
                 request_body = operation.get("requestBody")
+                security = operation.get("security", root_security)
+                if not isinstance(security, list):
+                    security = []
 
                 ep = OpenAPIEndpoint(
                     path=path,
                     method=method.upper(),
                     parameters=params,
                     request_body=request_body,
+                    security=security,
                 )
                 analysis.endpoints.append(ep)
 
@@ -199,7 +207,18 @@ def discover_specs(base_url: str, fetch_fn: Callable | None = None) -> list[str]
     found: list[str] = []
     for path in COMMON_SPEC_PATHS:
         url = f"{base_url.rstrip('/')}{path}"
-        found.append(url)
+        if fetch_fn is None:
+            found.append(url)
+            continue
+        try:
+            resp = fetch_fn({"url": url, "method": "GET"})
+            if not resp or resp.get("status_code") != 200:
+                continue
+            body = resp.get("body", "")
+            if "openapi" in body[:500] or "swagger" in body[:500]:
+                found.append(url)
+        except Exception:
+            continue
     return found
 
 def get_spec_paths() -> list[str]:
