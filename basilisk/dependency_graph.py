@@ -79,6 +79,7 @@ class DependencyAnalyzer:
         self._scan_package_lock()
         self._scan_pdm_lock()
         self._detect_circular()
+        self.graph.total_count = len(self.graph.nodes)
         return self.graph
 
     def _scan_package_json(self) -> None:
@@ -93,10 +94,6 @@ class DependencyAnalyzer:
                 is_dev = name in data.get("devDependencies", {})
                 node = self._check_package("npm", name, version_str, is_dev)
                 self.graph.nodes.append(node)
-
-            lock_path = self.project_path / "package-lock.json"
-            if lock_path.exists():
-                self._parse_npm_lock(lock_path)
 
             yarn_path = self.project_path / "yarn.lock"
             if yarn_path.exists():
@@ -128,6 +125,11 @@ class DependencyAnalyzer:
                     self.graph.nodes.append(node)
         except Exception as e:
             logger.debug("Failed to parse requirements: %s", e)
+
+    def _scan_package_lock(self) -> None:
+        lock_path = self.project_path / "package-lock.json"
+        if lock_path.exists():
+            self._parse_npm_lock(lock_path)
 
     def _parse_npm_lock(self, path: Path) -> None:
         try:
