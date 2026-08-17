@@ -72,7 +72,7 @@ class TestCLIStartup:
 class TestScanCommand:
     def test_scan_runs_and_exits_0_when_clean(self):
         with _mock_scanner(_minimal_report(vulnerable=False)):
-            result = runner.invoke(app, ["scan", "http://127.0.0.1", "--no-ui"])
+            result = runner.invoke(app, ["scan", "http://127.0.0.1"])
         assert result.exit_code == 0
 
     def test_scan_exits_1_when_vulnerable(self):
@@ -86,12 +86,12 @@ class TestScanCommand:
             }
         ]
         with _mock_scanner(report):
-            result = runner.invoke(app, ["scan", "http://127.0.0.1", "--no-ui"])
+            result = runner.invoke(app, ["scan", "http://127.0.0.1"])
         assert result.exit_code == 1
 
     def test_scan_no_llm_flag(self):
         with _mock_scanner():
-            result = runner.invoke(app, ["scan", "http://127.0.0.1", "--no-llm", "--no-ui"])
+            result = runner.invoke(app, ["scan", "http://127.0.0.1", "--no-llm"])
         assert result.exit_code == 0
 
 
@@ -107,7 +107,7 @@ class TestOutputFormats:
         out = tmp_path / "result.json"
         with _mock_scanner():
             result = runner.invoke(
-                app, ["scan", "http://127.0.0.1", "--no-llm", "--output", str(out), "--no-ui"]
+                app, ["scan", "http://127.0.0.1", "--no-llm", "--output", str(out)]
             )
         assert result.exit_code == 0
         assert out.exists()
@@ -116,7 +116,7 @@ class TestOutputFormats:
         out = tmp_path / "report.html"
         with _mock_scanner():
             result = runner.invoke(
-                app, ["scan", "http://127.0.0.1", "--no-llm", "--output", str(out), "--no-ui"]
+                app, ["scan", "http://127.0.0.1", "--no-llm", "--output", str(out)]
             )
         assert result.exit_code == 0
         assert out.exists()
@@ -134,7 +134,6 @@ class TestLocalHTTPIntegration:
                     "--timeout", "5",
                     "--max-pages", "1",
                     "--no-protocol-scan",
-                    "--no-ui",
                     "--json",
                 ],
             )

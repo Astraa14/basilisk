@@ -194,14 +194,18 @@ def _export(report: dict, output: str) -> None:
         console.print(f"[green]\u2713[/green] Results saved to [cyan]{out_path}[/cyan]")
 
 
-def _try_upload(report: dict) -> None:
+def _try_upload(report: dict, open_browser: bool = False) -> None:
     api_key = load_backend_api_key()
     if not api_key:
         return
     with console.status("[dim]Uploading report to Vercel dashboard...[/dim]", spinner="dots"):
         scan_id = send_report_to_backend(report, api_key)
     if scan_id:
-        console.print(f"[green]\u2713[/green] Report uploaded to dashboard: [bold cyan]{DASHBOARD_URL}/scans/{scan_id}[/bold cyan]")
+        url = f"{DASHBOARD_URL}/scans/{scan_id}"
+        console.print(f"[green]\u2713[/green] Report uploaded to dashboard: [bold cyan]{url}[/bold cyan]")
+        if open_browser:
+            import webbrowser
+            webbrowser.open(url)
     else:
         console.print("[dim]Could not sync to cloud dashboard (saved locally).[/dim]")
 
@@ -329,8 +333,8 @@ def scan(
     output: str | None = typer.Option(None, "--output", "-o", help="Save results to file (.json or .html)"),
     output_dir: str | None = typer.Option(None, "--output-dir", help="Save results to a directory (auto-named .json + .html)"),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
-    web_ui: bool = typer.Option(True, "--ui/--no-ui", help="Launch ephemeral code-authenticated local session dashboard"),
-    open_browser: bool = typer.Option(True, "--open/--no-open", help="Automatically open web dashboard in browser"),
+    web_ui: bool = typer.Option(False, "--ui", help="Launch optional ephemeral local session server"),
+    open_browser: bool = typer.Option(False, "--open", help="Automatically open Vercel dashboard in browser upon upload"),
     cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
     header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
     proxy: str | None = typer.Option(None, "--proxy", help="Proxy URL (http://, https://, socks5://, socks5h://)"),
@@ -457,7 +461,7 @@ def scan(
     console.print()
     _print_findings(report.get("findings", []))
     _print_summary(report)
-    _try_upload(report)
+    _try_upload(report, open_browser=open_browser)
 
     if output:
         _export(report, output)
