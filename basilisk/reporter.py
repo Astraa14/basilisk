@@ -32,12 +32,13 @@ def send_report_to_backend(report: dict, api_key: str | None = None) -> str | No
     url = f"{BACKEND_URL}/api/scans/upload"
     headers = {
         "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
         "X-API-Key": api_key,
     }
 
     try:
         response = requests.post(url, json=report, headers=headers, timeout=10)
-        if response.status_code == 200:
+        if response.status_code in (200, 201):
             data = response.json()
             return data.get("scan_id")
         else:
