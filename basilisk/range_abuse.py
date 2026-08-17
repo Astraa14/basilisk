@@ -124,7 +124,6 @@ def range_abuse_fuzzer(
         return findings
 
     # Parse Content-Length or Content-Range from original response
-    orig_content_length = orig_response.get("headers", {}).get("Content-Length", "")
     orig_body_size = len(orig_response.get("body", "") or "")
 
     # Test with Range request for a portion of the content

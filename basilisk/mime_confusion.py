@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from basilisk.models import Finding
+from basilisk.scoring import score_finding
 
 logger = logging.getLogger(__name__)
 
@@ -261,14 +262,14 @@ def magic_byte_detection(
             break
 
     # If no magic byte matched, check if content type is suspicious
-    if not is_mismatch and content_type:
+    if not is_mismatch and expected_type:
         # Common mismatches: text/* for binary files
-        if "/" in content_type and "/" in expected_type:
-            primary, secondary = content_type.split("/", 1), expected_type.split("/", 1)
+        if "/" in expected_type:
+            primary, secondary = expected_type.split("/", 1)
             if primary == "text" and secondary not in ("plain", "html"):
                 is_mismatch = True
                 evidence.append(
-                    f"Content-Type '{content_type}' is text-type but file has binary magic bytes"
+                    f"Content-Type '{expected_type}' is text-type but file has binary magic bytes"
                 )
 
     return is_mismatch, evidence

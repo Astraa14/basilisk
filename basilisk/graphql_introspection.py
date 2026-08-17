@@ -164,14 +164,14 @@ def find_graphql_operations(introspection_data: dict) -> list[dict]:
                     {"name": i.get("name", ""), "type": i.get("type", {}).get("name", "")}
                     for i in f.get("inputFields", [])
                 ]
-                fields_list.append(fields_detail)
+                field_list.append(fields_detail)
             else:
-                fields_list = []
+                field_list = []
             candidates.append(
                 {
                     "name": name,
                     "operationType": "query",
-                    "fields": fields_list,
+                    "fields": field_list,
                 }
             )
     return candidates

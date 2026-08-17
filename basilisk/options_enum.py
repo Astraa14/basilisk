@@ -7,6 +7,7 @@ identifying potentially dangerous methods that should not be exposed.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from basilisk.models import Finding

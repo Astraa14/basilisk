@@ -71,6 +71,7 @@ def analyze_csp(
     # CSP format: default-src 'self'; script-src 'self' https://cdn.example.com;
     # We'll parse semi-colon separated directives
     directives_str = csp_header.split(";")
+    directives = result["directives"]
     
     for part in directives_str:
         part = part.strip()

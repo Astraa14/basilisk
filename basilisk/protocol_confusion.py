@@ -7,6 +7,7 @@ enabling protocol confusion attacks.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from basilisk.models import Finding

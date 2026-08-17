@@ -33,7 +33,7 @@ def null_byte_injection_fuzzer(engine, url: str, param_name: str, timeout: float
         return findings
     for vector_type in NULL_VECTORS:
         payload = generate_null_byte_payload(vector_type, param_name)
-        from urllib.parse import urlparse, urlunparse, parse_qsl, quote
+        from urllib.parse import urlparse, urlunparse, parse_qsl, quote, urlencode
         parsed = urlparse(url)
         qs = dict(parse_qsl(parsed.query))
         qs[param_name] = payload

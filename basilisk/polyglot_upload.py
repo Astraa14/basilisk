@@ -12,6 +12,7 @@ import os
 from typing import Any, List, Optional, Tuple
 
 from basilisk.models import Finding
+from basilisk.scoring import score_finding
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def generate_polyglot_file(
         return mz_header + extra_data + png_header
     elif base_type == ".pdf" and secondary_type == ".js":
         # PDF with embedded JS
-        pdf_header = b"%PDF-1.4\n%ÿÿÿÿ\x19\x0d\x0d\x0a"
+        pdf_header = b"%PDF-1.4\n%\xff\xff\xff\xff\x19\x0d\x0d\x0a"
         js_code = b"console.log('polyglot');"
         return pdf_header + extra_data + js_code
     return b""
@@ -224,5 +225,6 @@ def polyglot_upload_fuzzer(
                     cvss_vector=vector,
                     remediation="Same as above - validate using magic bytes.",
                 )
+            )
 
     return findings

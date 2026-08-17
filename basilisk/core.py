@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from basilisk.auth_methods import AuthProvider
+from basilisk.accept_encoding_manipulation import accept_encoding_fuzzer
 from basilisk.cache_control import cache_control_fuzzer
 from basilisk.cors_misconfiguration import cors_misconfiguration_fuzzer
 from basilisk.csp_analysis import csp_analysis_fuzzer
@@ -15,9 +16,11 @@ from basilisk.engine import AttackEngine
 from basilisk.encoding_bypass import encoding_bypass_fuzzer
 from basilisk.http import RequestEngine
 from basilisk.alternate_protocol import alternate_protocol_fuzzer
+from basilisk.llm import LLMClient
 from basilisk.models import Finding, ScanConfig, ScanReport
 from basilisk.options_enum import options_enumeration_fuzzer
 from basilisk.protocol_confusion import protocol_confusion_fuzzer
+from basilisk.protocol_scan import ProtocolScanner
 from basilisk.range_abuse import range_abuse_fuzzer
 from basilisk.recon import Recon
 from basilisk.sri_bypass import sri_bypass_fuzzer
@@ -27,6 +30,8 @@ from basilisk.target import WebTarget
 from basilisk.tunnel import SshTunnel
 
 ProgressCb = Callable[[str], None]
+
+logger = logging.getLogger(__name__)
 
 
 class Basilisk:
@@ -68,11 +73,9 @@ class Basilisk:
                 self.tunnel = SshTunnel(self.config.ssh_tunnel)
                 proxy = self.tunnel.start()
             except Exception as exc:
-                logging.getLogger(__name__).warning(
+                logger.warning(
                     "SSH tunnel unavailable, scanning directly: %s", exc
                 )
-
-        from basilisk.http import RequestEngine
 
         requester = RequestEngine(
             timeout=timeout,
@@ -269,7 +272,7 @@ class Basilisk:
         if self.config.accept_encoding_manipulation:
             note("Checking for Accept-Encoding manipulation...")
             try:
-                ae_findings = accept_encoding_manipulation_fuzzer(
+                ae_findings = accept_encoding_fuzzer(
                     self.target.requester,
                     self.target_url,
                     timeout=self.config.timeout,

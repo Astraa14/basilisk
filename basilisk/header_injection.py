@@ -11,6 +11,7 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 from basilisk.models import Finding
+from basilisk.scoring import score_finding
 
 logger = logging.getLogger(__name__)
 

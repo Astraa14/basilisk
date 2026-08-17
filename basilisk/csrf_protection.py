@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from basilisk.models import Finding
+from basilisk.scoring import score_finding
 
 logger = logging.getLogger(__name__)
 
@@ -258,7 +259,7 @@ def _build_multipart_body(
         fname = f.name or "field"
         fvalue = f.value or ""
         # Determine content type
-        ct = mimetypes.guess_type(fname, false)[0] or "application/octet-stream"
+        ct = mimetypes.guess_type(fname, False)[0] or "application/octet-stream"
         parts.append(
             f'----{boundary}\r\n'
             f'Content-Disposition: form-data; name="{fname}"\r\n'

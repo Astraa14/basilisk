@@ -170,7 +170,7 @@ def cors_misconfiguration_fuzzer(
     # Analyze CORS headers
     cors_analysis = analyze_cors(response.get("headers", {}))
 
-    for misconfig in cms_analysis["misconfigurations"]:
+    for misconfig in cors_analysis["misconfigurations"]:
         risk = misconfig.get("risk", "medium")
         cvss_map = {"critical": 8.1, "high": 7.5, "medium": 6.0, "low": 4.0}
         cvss = cvss_map.get(risk, 6.0)
@@ -193,7 +193,7 @@ def cors_misconfiguration_fuzzer(
         )
 
     # If no misconfigurations found but CORS header present, log as info
-    if not cms_analysis["misconfigurations"] and "Access-Control-Allow-Origin" in response.get("headers", {}):
+    if not cors_analysis["misconfigurations"] and "Access-Control-Allow-Origin" in response.get("headers", {}):
         findings.append(
             Finding(
                 vulnerability="CORS header present with no obvious misconfigurations",

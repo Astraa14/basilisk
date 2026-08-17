@@ -68,7 +68,7 @@ JS_EVENTS = (
 )
 
 JS_EVENT_RE = re.compile(
-    r'\b("|')'.join(JS_EVENTS) + r")\s*=\s*(?:\"([^\"]*)\"|'([^']*)')",
+    r"\b(" + "|".join(re.escape(e) for e in JS_EVENTS) + r")\s*=\s*(?:\"([^\"]*)\"|'([^']*)')",
     re.IGNORECASE,
 )
 
