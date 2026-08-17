@@ -21,7 +21,11 @@ dependencies = [
 llm = ["openai>=1.0"]
 ml = ["scikit-learn>=1.3", "numpy>=1.24"]
 waf = ["requests[socks]>=2.31"]
-all = ["basilisk[llm,ml,waf]"]
+http2 = ["httpx[http2]>=0.27", "h2>=4.1"]
+http3 = ["httpx[http3]>=0.27"]
+browser = ["playwright>=1.40", "selenium>=4.15"]
+transport = ["basilisk[http2,http3]"]
+all = ["basilisk[llm,ml,waf,http2,http3]"]
 
 [project.scripts]
 basilisk = "basilisk.cli:main"

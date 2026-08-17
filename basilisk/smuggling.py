@@ -28,12 +28,28 @@ TE_TE_PAYLOADS = [
     {"name": "TE-TE tab", "headers": {"Transfer-Encoding": "\tchunked"}, "body": "0\r\n\r\nGPOST"},
 ]
 
+# Division 3 - additional smuggling payloads and protocol violations
+SMUGGLING_PAYLOADS = {
+    "cl_te": CL_TE_PAYLOADS,
+    "te_cl": TE_CL_PAYLOADS,
+    "te_te": TE_TE_PAYLOADS,
+}
+
 PROTOCOL_VIOLATIONS = [
     {"name": "Duplicate Content-Length", "pattern": r"Content-Length:.*\n.*Content-Length:"},
     {"name": "CL + TE together", "pattern": r"Content-Length:.*\n.*Transfer-Encoding:"},
     {"name": "Chunked with Content-Length", "pattern": r"Transfer-Encoding:.*\n.*Content-Length:"},
     {"name": "Line folding", "pattern": r"\r\n\s+[a-zA-Z]"},
     {"name": "Null byte injection", "pattern": r"\x00"},
+]
+
+PROTOCOL_CONFUSION_PAYLOADS = [
+    # HTTP/0.9 request (no version) followed by HTTP/1.1
+    {"method": "GET", "path": "/", "headers": {"Host": "example.com"}},
+    # HTTP/1.0 request followed by HTTP/1.1
+    {"method": "GET", "path": "/", "headers": {"Host": "example.com", "Connection": "close"}},
+    # HTTP/2 PRIOR_KNOWLEDGE attack vector
+    {"method": "PRIOR_KNOWLEDGE", "path": "/", "headers": {}},
 ]
 
 

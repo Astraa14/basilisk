@@ -27,6 +27,7 @@ from basilisk.config import (
     load_backend_username,
     save_backend_api_key,
 )
+from basilisk.models import ScanConfig
 from basilisk.reporter import send_report_to_backend
 
 logging.getLogger("basilisk").setLevel(logging.WARNING)
@@ -257,6 +258,60 @@ def _parse_headers(values: list[str] | None) -> dict | None:
     return headers or None
 
 
+def _build_config(
+    timeout: float,
+    delay: float,
+    retries: int,
+    proxy: str | None,
+    verify_tls: bool,
+    max_redirects: int,
+    pool_size: int,
+    auth_bearer: str | None,
+    auth_apikey: str | None,
+    auth_apikey_name: str,
+    auth_apikey_in: str,
+    oauth_client_id: str | None,
+    oauth_client_secret: str | None,
+    oauth_token_url: str | None,
+    cookie_jar: str | None,
+    reqlog: str | None,
+    ssh_tunnel: str | None,
+    protocol_scan: bool,
+    http3: bool,
+) -> ScanConfig:
+    auth_method = "none"
+    if auth_bearer:
+        auth_method = "bearer"
+    elif auth_apikey:
+        auth_method = "api_key"
+    elif oauth_client_id and oauth_token_url:
+        auth_method = "oauth2"
+    return ScanConfig(
+        timeout=timeout,
+        delay=delay,
+        max_retries=retries,
+        proxy=proxy,
+        verify_tls=verify_tls,
+        max_redirects=max_redirects,
+        pool_maxsize=pool_size,
+        pool_connections=max(2, pool_size // 2),
+        auth_method=auth_method,
+        auth_token=auth_bearer or "",
+        auth_api_key=auth_apikey or "",
+        auth_api_key_name=auth_apikey_name,
+        auth_api_key_in=auth_apikey_in,
+        oauth_client_id=oauth_client_id or "",
+        oauth_client_secret=oauth_client_secret or "",
+        oauth_token_url=oauth_token_url or "",
+        cookie_jar=cookie_jar or "",
+        request_logging=bool(reqlog),
+        log_path=reqlog or "",
+        ssh_tunnel=ssh_tunnel or "",
+        protocol_scan=protocol_scan,
+        enable_http3=http3,
+    )
+
+
 @app.command()
 def scan(
     url: str = typer.Argument(..., help="Target base URL (e.g. https://example.com)"),
@@ -274,8 +329,25 @@ def scan(
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
     cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
     header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
+    # Division 1 — protocol & transport layer
+    proxy: str | None = typer.Option(None, "--proxy", help="Proxy URL (http://, https://, socks5://, socks5h://)"),
+    no_verify_tls: bool = typer.Option(False, "--no-verify-tls", help="Skip TLS certificate validation for target requests"),
+    max_redirects: int = typer.Option(10, "--max-redirects", help="Max redirects before loop detection kicks in"),
+    auth_bearer: str | None = typer.Option(None, "--auth-bearer", "-B", help="Bearer token for Authorization header"),
+    auth_apikey: str | None = typer.Option(None, "--auth-apikey", help="API key for custom auth"),
+    auth_apikey_name: str = typer.Option("X-API-Key", "--auth-apikey-name", help="Header/param name for the API key"),
+    auth_apikey_in: str = typer.Option("header", "--auth-apikey-in", help="Where to place the API key: header, query, or cookie"),
+    oauth_client_id: str | None = typer.Option(None, "--oauth-client-id", help="OAuth2 client_credentials client id"),
+    oauth_client_secret: str | None = typer.Option(None, "--oauth-client-secret", help="OAuth2 client_credentials secret"),
+    oauth_token_url: str | None = typer.Option(None, "--oauth-token-url", help="OAuth2 token endpoint (enables client-credentials flow)"),
+    pool_size: int = typer.Option(20, "--pool-size", help="Connection pool size per host"),
+    cookie_jar: str | None = typer.Option(None, "--cookie-jar", help="Persist/reuse session cookies from a JSON file"),
+    reqlog: str | None = typer.Option(None, "--reqlog", help="Log requests/responses to a JSON file (replayable)"),
+    ssh_tunnel: str | None = typer.Option(None, "--ssh-tunnel", help="Scan via bastion host: user@host (SOCKS5 dynamic tunnel)"),
+    no_protocol_scan: bool = typer.Option(False, "--no-protocol-scan", help="Skip DNS/TLS/ALPN/pipelining transport checks"),
+    http3: bool = typer.Option(False, "--http3", help="Attempt HTTP/3 (QUIC) requests (requires httpx[http3])"),
 ):
-    """Full site scan: recon, passive audit, then Attack Engine fuzzing."""
+    """Full site scan: protocol checks, recon, passive audit, Attack Engine fuzzing."""
     enabled, key = _resolve_llm(use_llm, no_llm, api_key)
     mode = "llm" if enabled else "static"
 
@@ -284,6 +356,28 @@ def scan(
 
     if not json_output:
         _banner(url, mode=mode)
+
+    scan_config = _build_config(
+        timeout=timeout,
+        delay=delay,
+        retries=retries,
+        proxy=proxy,
+        verify_tls=not no_verify_tls,
+        max_redirects=max_redirects,
+        pool_size=pool_size,
+        auth_bearer=auth_bearer,
+        auth_apikey=auth_apikey,
+        auth_apikey_name=auth_apikey_name,
+        auth_apikey_in=auth_apikey_in,
+        oauth_client_id=oauth_client_id,
+        oauth_client_secret=oauth_client_secret,
+        oauth_token_url=oauth_token_url,
+        cookie_jar=cookie_jar,
+        reqlog=reqlog,
+        ssh_tunnel=ssh_tunnel,
+        protocol_scan=not no_protocol_scan,
+        http3=http3,
+    )
 
     try:
         scanner = Basilisk(
@@ -296,6 +390,7 @@ def scan(
             max_retries=retries,
             extra_headers=extra_headers,
             cookies=cookies,
+            config=scan_config,
         )
     except LLMError as exc:
         console.print(f"[bold red]LLM config error:[/bold red] {exc}")
@@ -322,6 +417,8 @@ def scan(
         except LLMError as exc:
             console.print(f"[bold red]LLM error:[/bold red] {exc}")
             raise typer.Exit(code=2) from exc
+
+    scanner.close()
 
     if json_output:
         console.print_json(json.dumps(report, default=str))
@@ -359,6 +456,11 @@ def login_scan(
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
     cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
     header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
+    # Division 1 — protocol & transport layer
+    proxy: str | None = typer.Option(None, "--proxy", help="Proxy URL (http://, https://, socks5://, socks5h://)"),
+    no_verify_tls: bool = typer.Option(False, "--no-verify-tls", help="Skip TLS certificate validation for target requests"),
+    auth_bearer: str | None = typer.Option(None, "--auth-bearer", "-B", help="Bearer token for Authorization header"),
+    ssh_tunnel: str | None = typer.Option(None, "--ssh-tunnel", help="Scan via bastion host: user@host (SOCKS5 dynamic tunnel)"),
 ):
     """Probe a login endpoint for SQL injection via the Attack Engine."""
     enabled, key = _resolve_llm(use_llm, no_llm, api_key)
@@ -369,6 +471,28 @@ def login_scan(
 
     if not json_output:
         _banner(f"{url}{endpoint}", mode=mode)
+
+    scan_config = _build_config(
+        timeout=timeout,
+        delay=delay,
+        retries=retries,
+        proxy=proxy,
+        verify_tls=not no_verify_tls,
+        max_redirects=10,
+        pool_size=20,
+        auth_bearer=auth_bearer,
+        auth_apikey=None,
+        auth_apikey_name="X-API-Key",
+        auth_apikey_in="header",
+        oauth_client_id=None,
+        oauth_client_secret=None,
+        oauth_token_url=None,
+        cookie_jar=None,
+        reqlog=None,
+        ssh_tunnel=ssh_tunnel,
+        protocol_scan=False,
+        http3=False,
+    )
 
     try:
         scanner = Basilisk(
@@ -381,6 +505,7 @@ def login_scan(
             max_retries=retries,
             extra_headers=extra_headers,
             cookies=cookies,
+            config=scan_config,
         )
     except LLMError as exc:
         console.print(f"[bold red]LLM config error:[/bold red] {exc}")
@@ -392,6 +517,8 @@ def login_scan(
         except LLMError as exc:
             console.print(f"[bold red]LLM error:[/bold red] {exc}")
             raise typer.Exit(code=2) from exc
+
+    scanner.close()
 
     findings = report.get("findings", [])
 

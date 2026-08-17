@@ -159,6 +159,24 @@ ATTACK_CVSS_MAP: dict[str, CVSSVector] = {
     "zero_day": CVSSVector("N", "L", "N", "N", "U", "H", "H", "H"),
     # Payload chain — context-dependent, default high
     "payload_chain": CVSSVector("N", "L", "N", "N", "C", "H", "H", "H"),
+    # DNS poisoning — traffic redirection + MITM
+    "dns_poisoning": CVSSVector("N", "H", "N", "N", "U", "H", "H", "H"),
+    # DNS rebinding — SSRF-style access to internal services
+    "dns_rebinding": CVSSVector("N", "H", "N", "N", "U", "H", "N", "N"),
+    # TLS weaknesses (expired/self-signed/weak protocol)
+    "tls": CVSSVector("N", "L", "N", "N", "U", "L", "L", "N"),
+    # ALPN / protocol negotiation weaknesses
+    "alpn": CVSSVector("N", "L", "N", "N", "U", "N", "L", "N"),
+    # HTTP/2 server push — cache poisoning / request smuggling surface
+    "http2_push": CVSSVector("N", "H", "N", "N", "U", "N", "L", "N"),
+    # HTTP/1.1 pipelining — smuggling surface
+    "pipelining": CVSSVector("N", "H", "N", "N", "U", "N", "L", "N"),
+    # Redirect loop — availability
+    "redirect_loop": CVSSVector("N", "L", "N", "R", "U", "N", "N", "L"),
+    # TCP anomalies — instability / filtering
+    "tcp_anomaly": CVSSVector("N", "L", "N", "N", "U", "N", "N", "L"),
+    # Protocol downgrade — coercion to weaker HTTP version
+    "protocol_downgrade": CVSSVector("N", "L", "N", "N", "U", "L", "N", "N"),
 }
 
 

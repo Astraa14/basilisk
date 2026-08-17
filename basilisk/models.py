@@ -50,6 +50,27 @@ class AttackType(str, Enum):
     MOBILE_API = "mobile_api"
     COMPLIANCE = "compliance"
     VISUAL_REGRESSION = "visual_regression"
+    # Division 1 — protocol & transport layer
+    DNS_POISONING = "dns_poisoning"
+    DNS_REBINDING = "dns_rebinding"
+    TLS = "tls"
+    ALPN = "alpn"
+    HTTP2_PUSH = "http2_push"
+    PIPELINING = "pipelining"
+    REDIRECT_LOOP = "redirect_loop"
+    TCP_ANOMALY = "tcp_anomaly"
+    PROTOCOL_DOWNGRADE = "protocol_downgrade"
+
+    # Division 2 — attack vector & parameter fuzzing
+    HTTP_PARAM_POLLUTION = "httppol"
+    HEADER_INJECTION = "header_inj"
+    HOST_HEADER_INJECTION = "host_inj"
+    REQUEST_SPLITTING = "req_split"
+    RESPONSE_SPLITTING = "resp_split"
+    MIME_CONFUSION = "mime_conf"
+    NULL_BYTE_INJECTION = "null_byte"
+    POLYGLOT_FILE = "polyglot"
+    MAGIC_BYTE = "magic_byte"
 
 
 @dataclass
@@ -101,6 +122,70 @@ class ScanConfig:
     max_retries: int = 1
     use_llm: bool = False
     use_ml: bool = False
+    # Division 1 — protocol & transport layer
+    verify_tls: bool = True
+    follow_redirects: bool = True
+    max_redirects: int = 10
+    backoff_factor: float = 1.0
+    backoff_max: float = 30.0
+    proxy: str | None = None
+    no_proxy: list[str] = field(default_factory=list)
+    pool_connections: int = 10
+    pool_maxsize: int = 20
+    cookie_jar: str = ""
+    auth_method: str = "none"
+    auth_token: str = ""
+    auth_api_key: str = ""
+    auth_api_key_name: str = "X-API-Key"
+    auth_api_key_in: str = "header"
+    auth_basic_user: str = ""
+    auth_basic_password: str = ""
+    oauth_token_url: str = ""
+    oauth_client_id: str = ""
+    oauth_client_secret: str = ""
+    oauth_scope: str = ""
+    enable_http2: bool = True
+    enable_http3: bool = False
+    protocol_scan: bool = True
+    dns_rebinding_check: bool = True
+    pipeline_check: bool = True
+    # Division 3: Web Security & Standards Violations
+    http_smuggling: bool = True
+    protocol_confusion: bool = True
+    range_abuse: bool = True
+    track_method: bool = True
+    options_enum: bool = True
+    webdav: bool = True
+    csp_analysis: bool = True
+    cors_misconfiguration: bool = True
+    sri_bypass: bool = True
+    service_worker: bool = True
+    cache_control: bool = True
+    hsts_preload: bool = True
+    content_encoding_bypass: bool = True
+    accept_encoding_manipulation: bool = True
+    alternate_protocol: bool = True
+    tcp_anomaly_check: bool = True
+    request_logging: bool = False
+    log_path: str = ""
+    ssh_tunnel: str = ""
+
+    # Division 2 — attack vector & parameter fuzzing
+    graphql_introspection: bool = True
+    enable_json_body: bool = True
+    http_parameter_pollution: bool = True
+    header_injection: bool = True
+    host_header_injection: bool = True
+    request_splitting: bool = True
+    response_splitting: bool = True
+    mime_type_confusion: bool = True
+    null_byte_injection: bool = True
+    polyglot_file_handling: bool = True
+    magic_byte_detection: bool = True
+    user_agent_rotation: bool = True
+    rate_limit_enabled: bool = True
+    rate_limit_rps: float = 20.0
+    rate_limit_burst: int = 100
 
 
 @dataclass

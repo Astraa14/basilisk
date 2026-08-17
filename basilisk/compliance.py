@@ -38,7 +38,7 @@ COMPLIANCE_CHECKS: dict[str, list[dict]] = {
 PHI_PATTERNS = [
     r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
     r"\b\d{9}\b",  # MRN-like
-    r"\bpatient.*id["\s:=]+[\w-]{4,}",  # Patient IDs
+    r'\bpatient.*id["\s:=]+[\w-]{4,}',  # Patient IDs
 ]
 
 CARD_PATTERNS = [

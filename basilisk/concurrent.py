@@ -17,12 +17,24 @@ ProgressCb = Callable[[str], None]
 
 
 class RateLimiter:
-    """Per-domain request rate limiter to avoid self-DoS."""
+    """Per-domain request rate limiter to avoid self-DoS.
 
-    def __init__(self, requests_per_second: float = 20.0):
+    Supports configurable sustained rate (requests/second) and burst limit
+    (maximum requests in a short window) per domain.
+    """
+
+    def __init__(
+        self,
+        requests_per_second: float = 20.0,
+        burst_limit: int = 100,
+        window_size: float = 60.0,
+    ):
         self._interval = 1.0 / requests_per_second if requests_per_second > 0 else 0
+        self.burst_limit = burst_limit
+        self.window_size = window_size
         self._domain_locks: dict[str, threading.Lock] = {}
         self._domain_last: dict[str, float] = {}
+        self._domain_count: dict[str, float] = {}
         self._global_lock = threading.Lock()
 
     def wait(self, url: str) -> None:
@@ -31,13 +43,33 @@ class RateLimiter:
             if domain not in self._domain_locks:
                 self._domain_locks[domain] = threading.Lock()
                 self._domain_last[domain] = 0.0
+                self._domain_count[domain] = 0.0
 
         lock = self._domain_locks[domain]
         with lock:
+            # Check burst limit
+            current_time = time.monotonic()
+            window_start = current_time - self.window_size
+
+            # Evict old counts outside the window
+            # (simple approach: just track count within window)
+            if self._domain_count[domain] > self.burst_limit:
+                # Wait until we're within burst limit
+                elapsed_in_window = current_time - window_start
+                needed_wait = (self._domain_count[domain] / self._interval) - elapsed_in_window
+                if needed_wait > 0:
+                    time.sleep(min(needed_wait, self.window_size))
+
+            # Apply normal rate limiting
             elapsed = time.monotonic() - self._domain_last[domain]
             if elapsed < self._interval:
                 time.sleep(self._interval - elapsed)
+
             self._domain_last[domain] = time.monotonic()
+            self._domain_count[domain] += 1
+            # Decay count outside window
+            if current_time - window_start > self.window_size:
+                self._domain_count[domain] = 0
 
 
 class ConcurrentScanner:
