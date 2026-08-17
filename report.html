@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Basilisk Scan Report — https://example.com</title>
+<style>
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:#0f172a; color:#e2e8f0; margin:0; padding:2rem; line-height:1.5 }
+  h1 { color:#22c55e; margin-bottom:.25rem }
+  .subtitle { color:#64748b; margin:0 0 1.5rem }
+  .meta { background:#1e293b; border:1px solid #334155; border-radius:.5rem;
+           padding:1rem 1.5rem; margin:1rem 0; display:grid;
+           grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.5rem }
+  .meta-item { display:flex; flex-direction:column }
+  .meta-label { font-size:.75rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em }
+  .meta-value { font-weight:600; color:#e2e8f0 }
+  .status-badge { display:inline-block; padding:.25rem .75rem; border-radius:999px;
+                   background:#22c55e22; color:#22c55e;
+                   border:1px solid #22c55e55; font-weight:600; font-size:.875rem }
+  table { width:100%; border-collapse:collapse; margin-top:1.5rem }
+  th { padding:.5rem 1rem; text-align:left; border-bottom:2px solid #334155;
+        color:#94a3b8; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em }
+  td { padding:.75rem 1rem; text-align:left; border-bottom:1px solid #1e293b; font-size:.875rem }
+  tr:hover td { background:#1e293b55 }
+  .empty { text-align:center; padding:3rem; color:#64748b }
+  footer { margin-top:2rem; color:#475569; font-size:.75rem; border-top:1px solid #1e293b; padding-top:1rem }
+  code { background:#1e293b; padding:.1rem .3rem; border-radius:.2rem; font-size:.8rem }
+</style>
+</head>
+<body>
+<h1>&#x1F40D; Basilisk Scan Report</h1>
+<p class="subtitle">Standalone local vulnerability scanner — results stored locally only</p>
+<div class="meta">
+  <div class="meta-item"><span class="meta-label">Target</span>
+    <span class="meta-value">https://example.com</span></div>
+  <div class="meta-item"><span class="meta-label">Mode</span>
+    <span class="meta-value">llm</span></div>
+  <div class="meta-item"><span class="meta-label">Pages Scanned</span>
+    <span class="meta-value">1</span></div>
+  <div class="meta-item"><span class="meta-label">Forms Found</span>
+    <span class="meta-value">0</span></div>
+  <div class="meta-item"><span class="meta-label">Findings</span>
+    <span class="meta-value">19</span></div>
+  <div class="meta-item"><span class="meta-label">Status</span>
+    <span class="status-badge">No high-severity issues</span></div>
+</div>
+<table><thead><tr><th>Severity</th><th>Issue</th><th>Target</th><th>Description</th></tr></thead><tbody>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>HTTP/0.9 protocol confusion detected</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Server appears to support HTTP/0.9 protocol confusion: Response appears to be HTTP/0.9 style (no status line): <!doctype html><html lang="en"><head><title>Exampl...</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>HTTP/1.0 to HTTP/1.1 protocol confusion detected</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Protocol confusion between HTTP/1.0 and HTTP/1.1: Response appears to be HTTP/0.9 style (no status line): <!doctype html><html lang="en"><head><title>Exampl...</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>Range request beyond file size returned 200</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Server returned full content for range request beyond file size, indicating range abuse possible</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>Missing Cache-Control header</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>No Cache-Control header detected. This leaves caching decisions to the default, which may not be appropriate for the resource.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>Content-Encoding bypass technique detected</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Content-Encoding bypass: Chunked transfer encoding with Content-Encoding</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>Accept-Encoding manipulation detected (gzip/deflate)</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Accept-Encoding manipulation: No Accept-Encoding header - server will decide encoding</td>
+        </tr>
+        <tr>
+          <td><span style="color:#eab308;font-weight:bold">Medium</span></td>
+          <td>Content-Encoding varies by Accept-Encoding header</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Content-Encoding varies based on Accept-Encoding: identity=, gzip/deflate=gzip</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Accept-Encoding manipulation detected</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Accept-Encoding manipulation: No Accept-Encoding header - server will decide encoding</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: X-Frame-Options</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Protects against clickjacking.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: X-Content-Type-Options</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Prevents MIME-sniffing.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: Strict-Transport-Security</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Enforces HTTPS (HSTS).</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: Content-Security-Policy</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Restricts resource origins.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: X-XSS-Protection</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Legacy XSS filter (deprecated but still used).</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: Referrer-Policy</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Controls referrer information leakage.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#06b6d4;font-weight:bold">Low</span></td>
+          <td>Missing Security Header: Permissions-Policy</td>
+          <td style="word-break:break-all">https://example.com/</td>
+          <td>Restricts browser feature access.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#6b7280;font-weight:bold">Info</span></td>
+          <td>ALPN: HTTP/2 negotiated</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Server supports HTTP/2 over ALPN. Ensure h2 request smuggling mitigations (RFC 9113) are applied.</td>
+        </tr>
+        <tr>
+          <td><span style="color:#6b7280;font-weight:bold">Info</span></td>
+          <td>HTTP/1.1 pipelining accepted</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>Server answered multiple back-to-back requests on one connection — classic request-smuggling surface. Cross-check with CL/TE desync tests (basilisk.smuggling). Evidence: server answered 2 pipelined requests in order: [200, 404]; pipelining accepted — verify CL/TE desync resistance with basilisk.smuggling</td>
+        </tr>
+        <tr>
+          <td><span style="color:#6b7280;font-weight:bold">Info</span></td>
+          <td>TRACK method properly disabled</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>TRACK method is properly disabled (405 Method Not Allowed)</td>
+        </tr>
+        <tr>
+          <td><span style="color:#6b7280;font-weight:bold">Info</span></td>
+          <td>No alternate protocols detected</td>
+          <td style="word-break:break-all">https://example.com</td>
+          <td>No alternate protocols (HTTP/2 via Alt-Svc, h2c, etc.) detected. Server appears to use standard HTTPS only.</td>
+        </tr></tbody></table>
+<footer>
+  Generated by <strong>Basilisk</strong> on 2026-08-17T16:28:38.824582+00:00<br>
+  <strong>Privacy:</strong> This report was generated locally. No data was uploaded automatically.
+  Scan only systems you own or have explicit written permission to test.
+</footer>
+</body>
+</html>

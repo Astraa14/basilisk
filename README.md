@@ -110,11 +110,27 @@ basilisk scan https://example.com --no-llm
 
 | Format | How |
 |---|---|
-| Terminal (Rich) | Default — always shown |
+| Live Local Web UI | Default — code-authenticated ephemeral web session (`http://127.0.0.1:<port>`) |
+| Terminal (Rich) | Default — live CLI output |
 | JSON file | `--output result.json` |
 | HTML report | `--output report.html` |
 | Auto-directory | `--output-dir ./reports/` (writes `.json` + `.html`) |
-| Stdout JSON | `--json` (pipe-friendly, suppresses Rich output) |
+| Stdout JSON | `--json` (pipe-friendly, suppresses Rich & Web UI) |
+
+---
+
+## Live Local Web Dashboard
+
+When starting a scan (`basilisk scan <url>`), Basilisk automatically launches an **ephemeral local web dashboard**:
+
+- **Passcode Authenticated:** The CLI process generates a one-time session code (e.g. `BSK-XK8912`) displayed in your terminal.
+- **Real-Time Stream:** Live metrics, vulnerabilities as they are detected, and terminal console logs stream to your browser.
+- **Self-Destructs On Exit:** When the CLI scan completes or the terminal process is terminated, the local web server closes immediately. Refreshing the browser page will show the session as expired.
+
+To disable the local web dashboard:
+```bash
+basilisk scan https://example.com --no-ui
+```
 
 ---
 

@@ -1,4 +1,4 @@
-"""Basilisk CLI — standalone local web vulnerability scanner."""
+"""Basilisk CLI — standalone local web vulnerability scanner with optional ephemeral UI."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from basilisk.core import Basilisk
 from basilisk.llm import LLMError, load_llm_env, llm_configured
 from basilisk.models import ScanConfig
 from basilisk.reporter import save_json, save_html
+from basilisk.web_server import EphemeralDashboardServer
 
 logging.getLogger("basilisk").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -84,20 +85,30 @@ def _draw_basilisk_logo() -> Group:
     return Group(logo, subtitle, spacer)
 
 
-def _banner(url: str, mode: str = "static") -> None:
+def _banner(url: str, mode: str = "static", server: EphemeralDashboardServer | None = None) -> None:
     if mode == "llm":
         pipeline = "Generator(LLM) -> Target -> Judge(LLM)"
     else:
         pipeline = "Static templates -> Target -> Heuristic Judge"
     console.print(_draw_basilisk_logo())
+    
+    panel_content = (
+        f"scanning [cyan]{url}[/cyan]\n"
+        f"[dim]recon -> {pipeline}[/dim]\n"
+        f"[dim]Results stored locally only — nothing is uploaded automatically.[/dim]"
+    )
+    
+    if server:
+        panel_content += (
+            f"\n\n[bold green]Live Session Dashboard Active:[/bold green]\n"
+            f"  [dim]URL:[/dim] [bold cyan]{server.url}[/bold cyan]\n"
+            f"  [dim]Session Passcode:[/dim] [bold white on blue]  {server.passcode}  [/bold white on blue]\n"
+            f"  [dim](Session will terminate when CLI process finishes)[/dim]"
+        )
+
     console.print(
         Panel(
-            Text.from_markup(
-                f"scanning [cyan]{url}[/cyan]\n"
-                f"[dim]recon -> {pipeline}[/dim]\n"
-                f"[dim]Results stored locally only — nothing is uploaded automatically.[/dim]",
-                justify="center",
-            ),
+            Text.from_markup(panel_content, justify="center"),
             border_style="green",
             padding=(1, 2),
         )
@@ -281,6 +292,8 @@ def scan(
     output: str | None = typer.Option(None, "--output", "-o", help="Save results to file (.json or .html)"),
     output_dir: str | None = typer.Option(None, "--output-dir", help="Save results to a directory (auto-named .json + .html)"),
     json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON to stdout"),
+    web_ui: bool = typer.Option(True, "--ui/--no-ui", help="Launch ephemeral code-authenticated local session dashboard"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Automatically open web dashboard in browser"),
     cookie: str | None = typer.Option(None, "--cookie", "-c", help="Request cookies (e.g. 'session=abc; token=xyz')"),
     header: list[str] = typer.Option([], "--header", "-H", help="Extra request headers (e.g. 'X-Custom: value')"),
     proxy: str | None = typer.Option(None, "--proxy", help="Proxy URL (http://, https://, socks5://, socks5h://)"),
@@ -300,15 +313,7 @@ def scan(
     no_protocol_scan: bool = typer.Option(False, "--no-protocol-scan", help="Skip DNS/TLS/ALPN/pipelining transport checks"),
     http3: bool = typer.Option(False, "--http3", help="Attempt HTTP/3 (QUIC) requests (requires httpx[http3])"),
 ) -> None:
-    """Full site scan: protocol checks, recon, passive audit, Attack Engine fuzzing.
-
-    Exit codes:
-      0 = scan completed, no high-severity findings
-      1 = scan completed, high/critical findings detected
-      2 = configuration or runtime error
-      130 = interrupted by user (Ctrl+C)
-    """
-    # Validate URL
+    """Full site scan: protocol checks, recon, passive audit, Attack Engine fuzzing."""
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
@@ -318,8 +323,20 @@ def scan(
     extra_headers = _parse_headers(header) if header else None
     cookies = _parse_cookie(cookie) if cookie else None
 
+    # Start Ephemeral Web Dashboard Server if enabled and not in JSON mode
+    server: EphemeralDashboardServer | None = None
+    if web_ui and not json_output:
+        try:
+            server = EphemeralDashboardServer(target_url=url)
+            server.start()
+            if open_browser:
+                server.open_browser()
+        except Exception as exc:
+            logging.warning(f"Could not start local web server: {exc}")
+            server = None
+
     if not json_output:
-        _banner(url, mode=mode)
+        _banner(url, mode=mode, server=server)
 
     scan_config = _build_config(
         timeout=timeout,
@@ -358,6 +375,8 @@ def scan(
         )
     except LLMError as exc:
         console.print(f"[bold red]LLM config error:[/bold red] {exc}")
+        if server:
+            server.stop()
         raise typer.Exit(code=2) from exc
 
     try:
@@ -371,6 +390,8 @@ def scan(
 
             def on_progress(msg: str) -> None:
                 progress.update(task, description=msg[:80])
+                if server:
+                    server.session.update_progress(msg)
 
             report = scanner.scan(
                 max_pages=max_pages,
@@ -378,6 +399,8 @@ def scan(
                 fuzz_url_params=not no_url_fuzz,
                 on_progress=on_progress,
             )
+            if server:
+                server.session.set_report(report)
     except LLMError as exc:
         console.print(f"[bold red]LLM error:[/bold red] {exc}")
         raise typer.Exit(code=2) from exc
@@ -386,6 +409,8 @@ def scan(
         raise typer.Exit(code=130)
     finally:
         scanner.close()
+        if server:
+            server.stop()
 
     if json_output:
         console.print_json(json.dumps(report, default=str))
@@ -397,7 +422,6 @@ def scan(
     _print_findings(report.get("findings", []))
     _print_summary(report)
 
-    # Output to file(s)
     if output:
         _export(report, output)
 
