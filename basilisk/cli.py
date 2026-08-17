@@ -1,9 +1,10 @@
-"""Basilisk CLI — standalone local web vulnerability scanner with optional ephemeral UI."""
+"""Basilisk CLI — security vulnerability scanner with local & Vercel dashboard support."""
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -20,11 +21,14 @@ from rich.console import Group
 from basilisk.core import Basilisk
 from basilisk.llm import LLMError, load_llm_env, llm_configured
 from basilisk.models import ScanConfig
-from basilisk.reporter import save_json, save_html
+from basilisk.reporter import save_json, save_html, send_report_to_backend
 from basilisk.web_server import EphemeralDashboardServer
+from basilisk.config import load_backend_api_key, load_backend_username, clear_config
 
 logging.getLogger("basilisk").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+DASHBOARD_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
 
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -43,7 +47,7 @@ def _version_callback(value: bool) -> None:
 
 app = typer.Typer(
     name="basilisk",
-    help="Basilisk — standalone local web vulnerability scanner.",
+    help="Basilisk — web vulnerability scanner.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -77,7 +81,7 @@ def _draw_basilisk_logo() -> Group:
     art = pyfiglet.figlet_format("BASILISK", font="block")
     logo = Text(art, style="bold green", justify="center")
     subtitle = Text(
-        "Standalone Local Web Vulnerability Scanner",
+        "AI-Powered Web Vulnerability Scanner",
         style="dim italic",
         justify="center",
     )
@@ -92,18 +96,21 @@ def _banner(url: str, mode: str = "static", server: EphemeralDashboardServer | N
         pipeline = "Static templates -> Target -> Heuristic Judge"
     console.print(_draw_basilisk_logo())
     
+    user = load_backend_username()
+    auth_str = f"[green]Logged in as {user}[/green]" if user else "[dim]Not logged in (results local)[/dim]"
+
     panel_content = (
         f"scanning [cyan]{url}[/cyan]\n"
         f"[dim]recon -> {pipeline}[/dim]\n"
-        f"[dim]Results stored locally only — nothing is uploaded automatically.[/dim]"
+        f"{auth_str}"
     )
     
     if server:
         panel_content += (
-            f"\n\n[bold green]Live Session Dashboard Active:[/bold green]\n"
+            f"\n\n[bold green]Live Session Local Dashboard Active:[/bold green]\n"
             f"  [dim]URL:[/dim] [bold cyan]{server.url}[/bold cyan]\n"
             f"  [dim]Session Passcode:[/dim] [bold white on blue]  {server.passcode}  [/bold white on blue]\n"
-            f"  [dim](Session will terminate when CLI process finishes)[/dim]"
+            f"  [dim](Local session self-destructs when CLI process exits)[/dim]"
         )
 
     console.print(
@@ -185,6 +192,18 @@ def _export(report: dict, output: str) -> None:
     else:
         save_json(report, out_path)
         console.print(f"[green]\u2713[/green] Results saved to [cyan]{out_path}[/cyan]")
+
+
+def _try_upload(report: dict) -> None:
+    api_key = load_backend_api_key()
+    if not api_key:
+        return
+    with console.status("[dim]Uploading report to Vercel dashboard...[/dim]", spinner="dots"):
+        scan_id = send_report_to_backend(report, api_key)
+    if scan_id:
+        console.print(f"[green]\u2713[/green] Report uploaded to dashboard: [bold cyan]{DASHBOARD_URL}/scans/{scan_id}[/bold cyan]")
+    else:
+        console.print("[dim]Could not sync to cloud dashboard (saved locally).[/dim]")
 
 
 def _parse_cookie(value: str | None) -> dict | None:
@@ -276,6 +295,24 @@ def _main_callback(
         console.print(ctx.get_help())
 
 
+@app.command("auth")
+def auth_cmd() -> None:
+    """Authenticate CLI with Vercel web dashboard using device code flow."""
+    from basilisk.auth import authenticate
+    api_key, username = authenticate()
+    if api_key:
+        console.print(f"[bold green]Successfully authenticated as {username}![/bold green]")
+    else:
+        console.print("[bold red]Authentication failed or cancelled.[/bold red]")
+
+
+@app.command("logout")
+def logout_cmd() -> None:
+    """Log out and remove local credentials."""
+    clear_config()
+    console.print("[green]Logged out successfully.[/green]")
+
+
 @app.command()
 def scan(
     url: str = typer.Argument(..., help="Target base URL (e.g. https://example.com)"),
@@ -323,7 +360,6 @@ def scan(
     extra_headers = _parse_headers(header) if header else None
     cookies = _parse_cookie(cookie) if cookie else None
 
-    # Start Ephemeral Web Dashboard Server if enabled and not in JSON mode
     server: EphemeralDashboardServer | None = None
     if web_ui and not json_output:
         try:
@@ -421,6 +457,7 @@ def scan(
     console.print()
     _print_findings(report.get("findings", []))
     _print_summary(report)
+    _try_upload(report)
 
     if output:
         _export(report, output)
@@ -537,6 +574,8 @@ def login_scan(
             border_style="red" if report.get("vulnerable") else "green",
         )
     )
+
+    _try_upload(report)
 
     if output:
         _export(report, output)
