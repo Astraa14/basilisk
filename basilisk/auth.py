@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import os
 import time
 import webbrowser
-
 import requests
+from rich.console import Console
 
-BACKEND_URL = "https://basilisk-ja22.onrender.com"
-FRONTEND_URL = "https://basilisk-scan.vercel.app"
+from basilisk.config import save_backend_api_key
+
+console = Console(legacy_windows=False)
+
+BACKEND_URL = os.getenv("BASILISK_BACKEND_URL", "https://basilisk-ja22.onrender.com")
+FRONTEND_URL = os.getenv("BASILISK_FRONTEND_URL", "https://basilisk-livid.vercel.app")
 
 DEVICE_CODE_ENDPOINT = f"{BACKEND_URL}/api/auth/device-code"
 TOKEN_ENDPOINT = f"{BACKEND_URL}/api/auth/token"
@@ -31,7 +36,7 @@ def request_device_code() -> dict:
     except requests.RequestException as exc:
         raise RuntimeError(
             f"Could not reach Basilisk backend at {BACKEND_URL}. "
-            "Make sure the backend is running (Render may need a cold start)."
+            "Make sure the backend is running."
         ) from exc
 
 
@@ -53,7 +58,6 @@ def poll_for_backend_key(device_code: str) -> tuple[str | None, str | None]:
                 data = resp.json()
                 if data.get("status") == 200 and data.get("api_key"):
                     return data["api_key"], data.get("username") or ""
-            # 202 = still waiting; 400 after cleanup = fail later
         except requests.RequestException:
             pass
         time.sleep(POLL_INTERVAL)
@@ -63,3 +67,37 @@ def poll_for_backend_key(device_code: str) -> tuple[str | None, str | None]:
 def open_auth_browser(url: str) -> None:
     """Open the verification URL in the user's default browser."""
     webbrowser.open(url)
+
+
+def authenticate() -> tuple[str | None, str | None]:
+    """
+    Execute full device code flow:
+    1. Request code from backend
+    2. Prompt user to open browser and enter code
+    3. Poll backend for confirmation
+    4. Save API key to local config
+    """
+    try:
+        data = request_device_code()
+    except Exception as exc:
+        console.print(f"[bold red]Authentication error:[/bold red] {exc}")
+        return None, None
+
+    user_code = data.get("user_code", "")
+    device_code = data.get("device_code", "")
+    verification_uri = data.get("verification_uri", f"{FRONTEND_URL}/auth/device")
+
+    console.print("\n[bold cyan]1.[/bold cyan] Open this URL in your browser:")
+    console.print(f"   [bold yellow]{verification_uri}[/bold yellow]\n")
+    console.print(f"[bold cyan]2.[/bold cyan] Enter device code: [bold white on blue] {user_code} [/bold white on blue]\n")
+
+    open_auth_browser(f"{verification_uri}?code={user_code}")
+
+    with console.status("[dim]Waiting for browser confirmation...[/dim]", spinner="dots"):
+        api_key, username = poll_for_backend_key(device_code)
+
+    if api_key:
+        save_backend_api_key(api_key, username or "")
+        return api_key, username
+    else:
+        return None, None
