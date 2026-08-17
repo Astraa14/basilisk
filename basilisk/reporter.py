@@ -1,60 +1,114 @@
-"""Sends completed scan reports to the Basilisk backend API."""
+"""
+Basilisk local report helpers.
 
+Basilisk is a fully standalone local CLI scanner.
+Scan results are NEVER uploaded automatically.
+All output is written locally (terminal, JSON file, HTML file).
+"""
 from __future__ import annotations
 
-import logging
-
-import requests
-
-# Update these constants after production deployment (Task 4.5)
-BACKEND_URL = "https://basilisk-ja22.onrender.com"
-UPLOAD_ENDPOINT = f"{BACKEND_URL}/api/scans/upload"
-
-logger = logging.getLogger(__name__)
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 
 
-def send_report_to_backend(report: dict, api_key: str | None) -> str | None:
-    """
-    POST a scan report dict to the backend.
+def save_json(report: dict, path: Path) -> None:
+    """Write scan report to a JSON file."""
+    path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
 
-    Returns the scan_id string on success, or None on any failure.
-    Never raises — failures are logged as warnings only.
-    """
-    if not api_key:
-        logger.info("No backend API key. Run 'basilisk auth' to save scans.")
-        return None
 
-    try:
-        response = requests.post(
-            UPLOAD_ENDPOINT,
-            json=report,
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-            },
-            timeout=15,
+def save_html(report: dict, path: Path) -> None:
+    """Write scan report to a self-contained HTML file."""
+    findings = report.get("findings", [])
+    order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3, "Info": 4}
+    ranked = sorted(findings, key=lambda f: order.get(f.get("severity", "Info"), 9))
+
+    rows = ""
+    for f in ranked:
+        sev = f.get("severity", "Info")
+        color = {
+            "Critical": "#dc2626",
+            "High": "#ef4444",
+            "Medium": "#eab308",
+            "Low": "#06b6d4",
+            "Info": "#6b7280",
+        }.get(sev, "#6b7280")
+        vuln = f.get("vulnerability", "")
+        target = f.get("target", "")
+        desc = f.get("description", "")
+        payload = f.get("payload", "")
+        payload_row = (
+            f'<tr><td colspan="4" style="padding:.25rem 1rem .5rem;color:#94a3b8;font-size:.8rem">'
+            f'Payload: <code>{payload[:200]}</code></td></tr>'
+            if payload
+            else ""
         )
+        rows += f"""
+        <tr>
+          <td><span style="color:{color};font-weight:bold">{sev}</span></td>
+          <td>{vuln}</td>
+          <td style="word-break:break-all">{target}</td>
+          <td>{desc}</td>
+        </tr>{payload_row}"""
 
-        if response.status_code == 401:
-            logger.warning(
-                "Backend rejected API key (401). Run 'basilisk auth' to re-authenticate."
-            )
-            return None
+    now = datetime.now(timezone.utc).isoformat()
+    high_count = sum(1 for f in findings if f.get("severity") in ("High", "Critical"))
+    status_color = "#dc2626" if high_count else "#22c55e"
+    status_text = f"{high_count} high/critical finding(s)" if high_count else "No high-severity issues"
 
-        if response.status_code in (200, 201):
-            data = response.json()
-            scan_id = data.get("scan_id")
-            return str(scan_id) if scan_id else None
-
-        logger.warning("Backend returned unexpected status %s.", response.status_code)
-        return None
-
-    except requests.exceptions.Timeout:
-        logger.warning("Upload timed out — backend may be unreachable.")
-        return None
-    except requests.exceptions.ConnectionError:
-        logger.warning("Could not connect to backend at %s.", BACKEND_URL)
-        return None
-    except requests.RequestException as exc:
-        logger.warning("Upload failed: %s", exc)
-        return None
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Basilisk Scan Report — {report.get('target', '')}</title>
+<style>
+  body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+         background:#0f172a; color:#e2e8f0; margin:0; padding:2rem; line-height:1.5 }}
+  h1 {{ color:#22c55e; margin-bottom:.25rem }}
+  .subtitle {{ color:#64748b; margin:0 0 1.5rem }}
+  .meta {{ background:#1e293b; border:1px solid #334155; border-radius:.5rem;
+           padding:1rem 1.5rem; margin:1rem 0; display:grid;
+           grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.5rem }}
+  .meta-item {{ display:flex; flex-direction:column }}
+  .meta-label {{ font-size:.75rem; color:#94a3b8; text-transform:uppercase; letter-spacing:.05em }}
+  .meta-value {{ font-weight:600; color:#e2e8f0 }}
+  .status-badge {{ display:inline-block; padding:.25rem .75rem; border-radius:999px;
+                   background:{status_color}22; color:{status_color};
+                   border:1px solid {status_color}55; font-weight:600; font-size:.875rem }}
+  table {{ width:100%; border-collapse:collapse; margin-top:1.5rem }}
+  th {{ padding:.5rem 1rem; text-align:left; border-bottom:2px solid #334155;
+        color:#94a3b8; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em }}
+  td {{ padding:.75rem 1rem; text-align:left; border-bottom:1px solid #1e293b; font-size:.875rem }}
+  tr:hover td {{ background:#1e293b55 }}
+  .empty {{ text-align:center; padding:3rem; color:#64748b }}
+  footer {{ margin-top:2rem; color:#475569; font-size:.75rem; border-top:1px solid #1e293b; padding-top:1rem }}
+  code {{ background:#1e293b; padding:.1rem .3rem; border-radius:.2rem; font-size:.8rem }}
+</style>
+</head>
+<body>
+<h1>&#x1F40D; Basilisk Scan Report</h1>
+<p class="subtitle">Standalone local vulnerability scanner — results stored locally only</p>
+<div class="meta">
+  <div class="meta-item"><span class="meta-label">Target</span>
+    <span class="meta-value">{report.get('target','')}</span></div>
+  <div class="meta-item"><span class="meta-label">Mode</span>
+    <span class="meta-value">{report.get('mode','static')}</span></div>
+  <div class="meta-item"><span class="meta-label">Pages Scanned</span>
+    <span class="meta-value">{report.get('pages_scanned',0)}</span></div>
+  <div class="meta-item"><span class="meta-label">Forms Found</span>
+    <span class="meta-value">{report.get('forms_found',0)}</span></div>
+  <div class="meta-item"><span class="meta-label">Findings</span>
+    <span class="meta-value">{len(findings)}</span></div>
+  <div class="meta-item"><span class="meta-label">Status</span>
+    <span class="status-badge">{status_text}</span></div>
+</div>
+{'<table><thead><tr><th>Severity</th><th>Issue</th><th>Target</th><th>Description</th></tr></thead><tbody>' + rows + '</tbody></table>' if findings else '<div class="empty">&#x2705; No issues flagged.</div>'}
+<footer>
+  Generated by <strong>Basilisk</strong> on {now}<br>
+  <strong>Privacy:</strong> This report was generated locally. No data was uploaded automatically.
+  Scan only systems you own or have explicit written permission to test.
+</footer>
+</body>
+</html>"""
+    path.write_text(html, encoding="utf-8")

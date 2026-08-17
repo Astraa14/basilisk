@@ -1,107 +1,214 @@
-# Basilisk
+# Basilisk 🐍
 
-Installable CLI vulnerability scanner for **ai made/ai assisted web apps**.
+**Standalone local CLI vulnerability scanner for AI-made and AI-assisted web applications.**
 
-> **Use only on systems you own or have explicit permission to test.** Unauthorized scanning is illegal.
+> **Authorization required.** Only scan systems you own or have explicit written permission to test. Unauthorized scanning is illegal.
+
+---
+
+## What is Basilisk?
+
+Basilisk is an **installable, offline-first security scanner** you run entirely on your own machine. It needs no account, no cloud dashboard, no backend service, and no internet access beyond reaching the target you specify.
+
+- No Basilisk account required
+- No results uploaded automatically
+- No external Basilisk server contacted
+- Everything stays on your filesystem by default
+
+---
 
 ## Install
 
 ```bash
-git clone <your-repo-url>
-cd Basilisk
+git clone https://github.com/Astraa14/basilisk
+cd basilisk
 pip install -e .
-cp .env.example .env
-# edit .env and set BASILISK_LLM_API_KEY=...
 ```
 
-Requires Python 3.10+.
+Requires **Python 3.10+**.
 
-## LLM roles (HackAgent-style)
-
-When an LLM backend is available, Basilisk uses the same **role split** as HackAgent:
-
-| Role | What it does |
-|------|----------------|
-| **Generator** | LLM creates adversarial SQLi/XSS payloads for each form (datasets are seeds only) |
-| **Judge** | LLM decides if the Target's HTTP response means the attack succeeded |
-| **Target** | Your live web app (HTTP) |
-| **Datasets** | Static seed templates + optional `--dataset` |
-
-Backend resolution order:
-
-1. Cloud / OpenAI-compatible key in `.env` (`BASILISK_LLM_API_KEY` + `BASILISK_LLM_BASE_URL`)
-2. Else local **Ollama** at `http://localhost:11434` (no paid key — same idea as HackAgent)
+Optional extras:
 
 ```bash
-# With .env key -> full Generator + Judge pipeline
+pip install -e ".[llm]"        # OpenAI-compatible LLM support
+pip install -e ".[all]"        # All optional features
+```
+
+---
+
+## Quick Start
+
+```bash
+# Basic scan (static/heuristic mode — no LLM required)
 basilisk scan https://example.com
 
-# Force static-only
+# Save a JSON report
+basilisk scan https://example.com --output report.json
+
+# Save an HTML report
+basilisk scan https://example.com --output report.html
+
+# Save both to a directory (auto-named files)
+basilisk scan https://example.com --output-dir ./reports/
+
+# Force static-only (ignore any configured LLM key)
+basilisk scan https://example.com --no-llm
+
+# Probe a login endpoint for SQLi
+basilisk login https://example.com --endpoint /auth/login
+
+# Machine-readable JSON output
+basilisk scan https://example.com --json
+```
+
+---
+
+## LLM Support (Optional)
+
+Basilisk works without any LLM. LLM mode enables an adversarial generator+judge pipeline for smarter payload generation.
+
+### Option 1 – Local Ollama (free, no API key)
+
+```bash
+# Install and start Ollama
+ollama serve
+ollama pull llama3.2
+
+# Basilisk auto-detects Ollama at http://localhost:11434
+basilisk scan https://example.com
+```
+
+### Option 2 – Cloud / OpenAI-compatible provider
+
+```bash
+cp .env.example .env
+# Edit .env:
+# BASILISK_LLM_API_KEY=sk-...
+# BASILISK_LLM_BASE_URL=https://api.openai.com/v1
+# BASILISK_LLM_MODEL=gpt-4o-mini
+
+basilisk scan https://example.com
+```
+
+### Option 3 – No LLM (always works)
+
+```bash
 basilisk scan https://example.com --no-llm
 ```
 
-Create `.env` from `.env.example` (never commit real keys).
+### Environment variables
 
 | Variable | Default | Purpose |
-|----------|---------|---------|
-| `BASILISK_LLM_API_KEY` | (cloud) or `ollama` | API key |
-| `BASILISK_LLM_BASE_URL` | provider URL or Ollama `/v1` | OpenAI-compatible base |
+|---|---|---|
+| `BASILISK_LLM_API_KEY` | — | API key for LLM provider (or `ollama` for local) |
+| `BASILISK_LLM_BASE_URL` | provider URL or `http://localhost:11434/v1` | OpenAI-compatible base URL |
 | `BASILISK_LLM_MODEL` | `gpt-4o-mini` / `llama3.2` | Model name |
 
-Exit code `1` when high-severity issues are found; `2` on LLM config/API errors.
+---
 
-## SaaS Dashboard
+## Output Formats
 
-Basilisk uploads scan results to a central web dashboard (per-user accounts).
+| Format | How |
+|---|---|
+| Terminal (Rich) | Default — always shown |
+| JSON file | `--output result.json` |
+| HTML report | `--output report.html` |
+| Auto-directory | `--output-dir ./reports/` (writes `.json` + `.html`) |
+| Stdout JSON | `--json` (pipe-friendly, suppresses Rich output) |
 
-**Live:**
-- Frontend: https://basilisk-livid.vercel.app
-- Backend API: https://basilisk-ja22.onrender.com
+---
 
-```bash
-# 1. Authenticate once (opens browser)
-basilisk auth
+## Exit Codes
 
-# 2. Run scans — results print locally and auto-upload
-basilisk scan https://example.com
+| Code | Meaning |
+|---|---|
+| `0` | Scan completed, no high/critical findings |
+| `1` | Scan completed, high or critical findings detected |
+| `2` | Configuration or runtime error (LLM config, invalid URL, etc.) |
+| `130` | Interrupted by user (Ctrl+C) |
 
-# 3. Open the dashboard to view stats, URLs, and reports
-#    https://basilisk-livid.vercel.app/dashboard
+---
 
-# 4. Log out (removes local API key only)
-basilisk logout
+## Scan Options
+
+```
+basilisk scan --help
 ```
 
-| Step | What happens |
-|------|-------------|
-| `basilisk auth` | Browser opens. Enter the code + email. CLI and browser both receive the same API key. |
-| `basilisk scan` | Scan runs locally, then uploads. Terminal prints a dashboard link. |
-| Dashboard | Shows your runs only: stats, target URLs, findings. |
+Key options:
 
-API key is stored in `~/.basilisk/config.json` (CLI) and browser `localStorage` (web). Never commit keys.
+| Option | Description |
+|---|---|
+| `--max-pages N` | Crawl limit (default: 15) |
+| `--no-active` | Passive audit only (no form fuzzing) |
+| `--no-url-fuzz` | Skip URL parameter fuzzing |
+| `--timeout N` | HTTP request timeout in seconds |
+| `--proxy URL` | Route through HTTP/SOCKS5 proxy |
+| `--no-verify-tls` | Disable TLS certificate validation |
+| `--auth-bearer TOKEN` | Bearer token for Authorization header |
+| `--cookie 'k=v; k2=v2'` | Custom cookies |
+| `--header 'X-Foo: bar'` | Custom headers (repeatable) |
+| `--no-llm` | Static-only, never calls LLM |
+| `--llm` | Force LLM mode |
+| `--no-protocol-scan` | Skip transport-layer checks (DNS, TLS, etc.) |
 
 ---
 
 ## Architecture
 
 ```
-Datasets -> Attack Engine -> Generator -> Target (HTTP) -> Judge -> Report
-                ^
-              Recon (crawl + passive)
+Target URL
+  └─▶ Recon (crawl + passive headers)
+        └─▶ Attack Engine
+              ├─▶ Generator (static templates or LLM)
+              ├─▶ HTTP execution (RequestEngine)
+              └─▶ Judge (heuristic or LLM)
+                    └─▶ Report (terminal / JSON / HTML)
 ```
 
-| Role | Module |
-|------|--------|
+| Component | Module |
+|---|---|
+| Scanner facade | `basilisk/core.py` |
 | Attack Engine | `basilisk/engine.py` |
-| Generator | `basilisk/generator.py` (static + optional LLM) |
-| Judge | `basilisk/judge.py` (heuristic + optional LLM) |
-| Target | `basilisk/target.py` |
+| Generator | `basilisk/generator.py` |
+| Judge | `basilisk/judge.py` |
+| HTTP client | `basilisk/http.py` |
+| Recon / crawler | `basilisk/recon.py` |
 | Datasets | `basilisk/datasets/*.json` |
-| Recon | `basilisk/recon.py` |
+| LLM client | `basilisk/llm.py` |
+| Reporter | `basilisk/reporter.py` |
+
+---
+
+## Privacy & Security
+
+- **No automatic uploads.** Scan results never leave your machine unless you explicitly choose to share them.
+- **No target URLs sent to Basilisk.** The scanner runs entirely locally.
+- **API keys are not logged.** `BASILISK_LLM_API_KEY` is never written to reports or output files.
+- **Temporary files** (cookie jars, request logs) are written only to paths you specify.
+- **HTTP headers** containing `Authorization` or `Cookie` values are not included in HTML/JSON reports.
+
+---
 
 ## Development
 
 ```bash
 pip install -e .
+pytest tests/ -v
 basilisk --help
 ```
+
+---
+
+## Docker
+
+```bash
+docker build -t basilisk .
+docker run --rm basilisk scan https://example.com --no-llm
+```
+
+---
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
