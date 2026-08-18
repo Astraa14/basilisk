@@ -7,7 +7,9 @@ const AuthPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  const [code, setCode] = useState(searchParams.get('code') || '');
+  const rawCode = searchParams.get('code') || '';
+  const initialCode = rawCode.split('?')[0].trim();
+  const [code, setCode] = useState(initialCode);
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [loading, setLoading] = useState(false);

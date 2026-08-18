@@ -85,13 +85,18 @@ def authenticate() -> tuple[str | None, str | None]:
 
     user_code = data.get("user_code", "")
     device_code = data.get("device_code", "")
-    verification_uri = data.get("verification_uri", f"{FRONTEND_URL}/auth/device")
+    verification_uri = data.get("verification_uri") or f"{FRONTEND_URL}/auth"
+
+    if "?code=" in verification_uri:
+        auth_url = verification_uri
+    else:
+        auth_url = f"{verification_uri}?code={user_code}"
 
     console.print("\n[bold cyan]1.[/bold cyan] Open this URL in your browser:")
-    console.print(f"   [bold yellow]{verification_uri}[/bold yellow]\n")
+    console.print(f"   [bold yellow]{auth_url}[/bold yellow]\n")
     console.print(f"[bold cyan]2.[/bold cyan] Enter device code: [bold white on blue] {user_code} [/bold white on blue]\n")
 
-    open_auth_browser(f"{verification_uri}?code={user_code}")
+    open_auth_browser(auth_url)
 
     with console.status("[dim]Waiting for browser confirmation...[/dim]", spinner="dots"):
         api_key, username = poll_for_backend_key(device_code)
