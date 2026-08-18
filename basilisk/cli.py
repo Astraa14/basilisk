@@ -47,9 +47,24 @@ def _version_callback(value: bool) -> None:
 
 app = typer.Typer(
     name="basilisk",
-    help="Basilisk — web vulnerability scanner.",
+    help=(
+        "[bold green]Basilisk[/bold green] — High-Performance Web Vulnerability Scanner & Security Audit Suite.\n\n"
+        "[bold cyan]Core Features:[/bold cyan]\n"
+        "  • Protocol & Transport Audits (DNS, TLS/SSL, ALPN, HTTP Pipelining, Request Smuggling)\n"
+        "  • Web Recon & Crawler (Dynamic page discovery & HTML form parsing)\n"
+        "  • Vulnerability Detection (SQLi, XSS, SSRF, IDOR, Header Misconfigurations)\n"
+        "  • Optional AI-Assisted Fuzzing & Intelligent Finding Verification (LLM mode)\n"
+        "  • Offline Local Reports (JSON & HTML) + Cloud Dashboard Sync\n\n"
+        "[bold cyan]Quick Commands:[/bold cyan]\n"
+        "  [bold yellow]basilisk scan https://example.com[/bold yellow]          Run security scan against target\n"
+        "  [bold yellow]basilisk scan https://example.com --open[/bold yellow]   Scan & open report on cloud dashboard\n"
+        "  [bold yellow]basilisk scan https://example.com -o r.html[/bold yellow]  Scan & export clean HTML report\n"
+        "  [bold yellow]basilisk auth[/bold yellow]                                Authenticate CLI with web dashboard\n"
+        "  [bold yellow]basilisk logout[/bold yellow]                              Log out and clear stored credentials"
+    ),
     add_completion=False,
     no_args_is_help=True,
+    rich_markup_mode="rich",
 )
 console = Console(legacy_windows=False)
 
@@ -296,6 +311,7 @@ def _main_callback(
     ),
 ) -> None:
     if ctx.invoked_subcommand is None:
+        console.print(_draw_basilisk_logo())
         console.print(ctx.get_help())
 
 
@@ -308,6 +324,12 @@ def auth_cmd() -> None:
         console.print(f"[bold green]Successfully authenticated as {username}![/bold green]")
     else:
         console.print("[bold red]Authentication failed or cancelled.[/bold red]")
+
+
+@app.command("login")
+def login_cmd() -> None:
+    """Authenticate CLI with Vercel web dashboard (alias for 'basilisk auth')."""
+    auth_cmd()
 
 
 @app.command("logout")
